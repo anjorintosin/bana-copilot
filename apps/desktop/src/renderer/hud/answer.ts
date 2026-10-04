@@ -142,7 +142,7 @@ export function formatAnswer(text: string) {
   let html = ladder.gist ? `<p class="gist">${escapeHtml(ladder.gist)}</p>` : "";
   html += renderBody(say);
   if (ladder.push) {
-    html += `<div class="ladder-push"><p class="ladder-label">If they push</p>${renderBody(ladder.push)}</div>`;
+    html += `<div class="ladder-push"><p class="ladder-label">If they push — say this next, do not restart</p>${renderBody(ladder.push)}</div>`;
   }
   if (ladder.trap) {
     html += `<p class="ladder-trap">Don't: ${escapeHtml(ladder.trap.replace(/^don't:\s*/i, ""))}</p>`;

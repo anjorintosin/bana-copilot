@@ -535,7 +535,7 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           | {
               apiKey: string;
               baseURL?: string;
-              source: "hosted" | "byok";
+              source: "hosted" | "byok" | "env";
               provider?: "openai" | "claude" | "groq" | "compatible";
             }
           | undefined,

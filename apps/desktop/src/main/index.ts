@@ -129,7 +129,11 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
-      additionalArguments: [`--copilot-api=${WS}`, `--copilot-http=${HTTP}`],
+      additionalArguments: [
+        `--copilot-api=${WS}`,
+        `--copilot-http=${HTTP}`,
+        `--copilot-packaged=${app.isPackaged ? "1" : "0"}`,
+      ],
     },
   });
 
@@ -224,7 +228,11 @@ function openHome(hash = "#overview") {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
-      additionalArguments: [`--copilot-api=${WS}`, `--copilot-http=${HTTP}`],
+      additionalArguments: [
+        `--copilot-api=${WS}`,
+        `--copilot-http=${HTTP}`,
+        `--copilot-packaged=${app.isPackaged ? "1" : "0"}`,
+      ],
     },
   });
   homeWin.loadFile(path.join(__dirname, "home.html"), { hash: dest.slice(1) });

@@ -2,12 +2,15 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const apiArg = process.argv.find((arg) => arg.startsWith("--copilot-api="));
 const httpArg = process.argv.find((arg) => arg.startsWith("--copilot-http="));
+const packagedArg = process.argv.find((arg) => arg.startsWith("--copilot-packaged="));
 const apiUrl = apiArg?.slice("--copilot-api=".length) ?? "ws://127.0.0.1:8787/ws";
 const httpUrl = httpArg?.slice("--copilot-http=".length) ?? "http://127.0.0.1:8787";
+const packaged = packagedArg?.slice("--copilot-packaged=".length) === "1";
 
 contextBridge.exposeInMainWorld("copilot", {
   apiUrl,
   httpUrl,
+  packaged,
   platform: process.platform,
   ensureAuth: () => ipcRenderer.invoke("auth:ensure"),
   listSessions: (token: string) => ipcRenderer.invoke("sessions:list", token),
