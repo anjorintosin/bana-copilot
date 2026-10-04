@@ -4,7 +4,12 @@ export const SHORTCUT_IDS = [
   "home",
   "listen",
   "assist",
+  "say_next",
+  "follow_up",
+  "fact_check",
+  "recap",
   "screen",
+  "share",
   "clear",
   "interact",
 ] as const;
@@ -25,7 +30,12 @@ export const SHORTCUT_META: ShortcutMeta[] = [
   { id: "home", label: "Open dashboard", hint: "Works anytime", scope: "always" },
   { id: "listen", label: "Start / capture listen", hint: "Only during a session", scope: "session" },
   { id: "assist", label: "Ask / assist", hint: "Only during a session", scope: "session" },
+  { id: "say_next", label: "What should I say", hint: "Only during a session", scope: "session" },
+  { id: "follow_up", label: "Follow-ups", hint: "Only during a session", scope: "session" },
+  { id: "fact_check", label: "Fact check", hint: "Only during a session", scope: "session" },
+  { id: "recap", label: "Recap", hint: "Only during a session", scope: "session" },
   { id: "screen", label: "Solve screen", hint: "Only during a session", scope: "session" },
+  { id: "share", label: "Screen share HUD", hint: "Show or hide the HUD on Zoom/Meet share", scope: "always" },
   { id: "clear", label: "Clear context", hint: "Only during a session", scope: "session" },
   {
     id: "interact",
@@ -41,7 +51,12 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   home: "CommandOrControl+Shift+H",
   listen: "CommandOrControl+Shift+L",
   assist: "CommandOrControl+Enter",
-  screen: "CommandOrControl+Shift+Enter",
+  say_next: "CommandOrControl+1",
+  follow_up: "CommandOrControl+2",
+  fact_check: "CommandOrControl+3",
+  recap: "CommandOrControl+4",
+  screen: "CommandOrControl+5",
+  share: "CommandOrControl+Shift+S",
   clear: "CommandOrControl+Shift+Backspace",
   interact: "CommandOrControl+Shift+A",
 };
@@ -146,6 +161,9 @@ export function mergeSettings(raw: unknown): AppSettings {
     for (const id of SHORTCUT_IDS) {
       const value = input.shortcuts[id];
       if (typeof value === "string" && value.includes("+")) shortcuts[id] = value;
+    }
+    if (shortcuts.screen === "CommandOrControl+Shift+Enter") {
+      shortcuts.screen = DEFAULT_SHORTCUTS.screen;
     }
   }
   const look = { ...DEFAULT_LOOK };

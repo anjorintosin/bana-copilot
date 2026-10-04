@@ -155,6 +155,8 @@ export type CopilotBridge = {
   onListenToggle: (cb: () => void) => () => void;
   onAssist: (cb: () => void) => () => void;
   onAssistScreen: (cb: () => void) => () => void;
+  onShareToggle: (cb: () => void) => () => void;
+  onAssistAction: (cb: (action: string) => void) => () => void;
   onContextClear: (cb: () => void) => () => void;
   onProfileChanged: (cb: () => void) => () => void;
   getApiUrl: () => Promise<{ http: string; ws: string }>;

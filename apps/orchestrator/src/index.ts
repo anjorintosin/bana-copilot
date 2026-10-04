@@ -165,11 +165,19 @@ function formatScreenContext(screen?: ScreenCtx) {
   if (!screen || Date.now() - screen.at > 5 * 60_000) return "";
   const parts = [
     screen.title && `Title: ${screen.title}`,
+    screen.language && `Language: ${screen.language}`,
+    screen.signature && `Signature: ${screen.signature}`,
     screen.problem && `Problem: ${screen.problem}`,
     screen.ocrText && `Text: ${screen.ocrText}`,
   ].filter(Boolean);
   return parts.join("\n");
 }
+
+type CueOpts = {
+  imageBase64?: string;
+  mimeType?: string;
+  groundToScreen?: boolean;
+};
 
 type AnswerExtras = {
   ai?: AiCreds | null;
@@ -225,10 +233,13 @@ async function streamCueCard(
   extras?: AnswerExtras,
   source: "audio" | "screen" | "assist" = "audio",
   smart = false,
+  opts?: CueOpts,
 ) {
   const state = mem(sessionId);
   if (extras?.ai) state.ai = extras.ai;
-  return withSessionAi(sessionId, () => streamCueCardInner(sessionId, classified, emit, extras, source, smart));
+  return withSessionAi(sessionId, () =>
+    streamCueCardInner(sessionId, classified, emit, extras, source, smart, opts),
+  );
 }
 
 async function streamCueCardInner(
@@ -238,6 +249,7 @@ async function streamCueCardInner(
   extras?: AnswerExtras,
   source: "audio" | "screen" | "assist" = "audio",
   smart = false,
+  opts?: CueOpts,
 ) {
   const state = mem(sessionId);
   const key = normalizeQuestion(classified.text);
@@ -280,14 +292,15 @@ async function streamCueCardInner(
   await emit({ type: "answer.started", questionId });
   try {
     let full = "";
-    if (!state.brief) await ensureBrief(sessionId, extras);
+    const groundToScreen = Boolean(opts?.groundToScreen);
+    if (!groundToScreen && !state.brief) await ensureBrief(sessionId, extras);
 
     let ragContext = "";
     let picked: Story | null = null;
-    if (specialistNeedsStory(specialist.id) && state.stories.length) {
+    if (!groundToScreen && specialistNeedsStory(specialist.id) && state.stories.length) {
       picked = pickLockedStory(classified.text, state.stories, state.claims);
       if (picked) ragContext = formatStory(picked);
-    } else if (specialistNeedsRag(specialist.id) && extras?.resumeContext) {
+    } else if (!groundToScreen && specialistNeedsRag(specialist.id) && extras?.resumeContext) {
       const retrieved = await withTimeout(
         extras.resumeContext(classified.text, { k: 2 }),
         180,
@@ -304,13 +317,21 @@ async function streamCueCardInner(
       track: state.track,
       stage,
       intent: classified.intent,
-      brief: state.brief,
+      brief: groundToScreen ? "" : state.brief,
       ragContext,
-      prior: state.turns,
+      prior: groundToScreen ? [] : state.turns,
       screenContext: formatScreenContext(state.screen),
-      rollingSummary: state.rollingSummary,
-      claims: formatClaims(state.claims),
-      smart,
+      rollingSummary: groundToScreen ? "" : state.rollingSummary,
+      claims: groundToScreen ? "" : formatClaims(state.claims),
+      smart: smart || groundToScreen,
+      groundToScreen,
+      image: opts?.imageBase64
+        ? {
+            base64: opts.imageBase64,
+            mimeType: opts.mimeType,
+            detail: "high",
+          }
+        : undefined,
     })) {
       full += delta;
       await emit({ type: "answer.delta", questionId, text: delta });
@@ -844,6 +865,74 @@ export function isListening(sessionId: string) {
 // Screen vision
 // ---------------------------------------------------------------------------
 
+async function solveFromScreenshot(
+  sessionId: string,
+  image: string,
+  mimeType: string | undefined,
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+  extras?: AnswerExtras,
+  source: "screen" | "assist" = "assist",
+) {
+  let analysis: ScreenAnalysis | null = null;
+  try {
+    analysis = await analyzeScreen(image, mimeType, { detail: "high" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/401|invalid api key|incorrect api key/i.test(message)) {
+      await emit({
+        type: "session.error",
+        code: "no_ai_key",
+        message: "The model key was rejected. Check the Plan page and try again.",
+      });
+      return;
+    }
+  }
+
+  if (analysis && analysis.kind !== "idle") {
+    mem(sessionId).screen = { ...analysis, at: Date.now() };
+    await emit({
+      type: "screen.insight",
+      kind: analysis.kind,
+      title: analysis.title,
+      text: (analysis.problem || analysis.ocrText).slice(0, 280),
+      ocrText: analysis.ocrText,
+    });
+  }
+
+  if (source === "screen" && analysis?.kind === "idle") return;
+
+  const language = analysis?.language
+    ? `Language: ${analysis.language}.`
+    : "Use the language visible in the editor or starter code.";
+  const signature = analysis?.signature ? `Starter: ${analysis.signature}` : "";
+  const body = (analysis?.problem || analysis?.ocrText || "").slice(0, 1600);
+  const question = [
+    "Solve only the interview problem in the attached screenshot.",
+    language,
+    signature,
+    body || "Read the screenshot. Do not invent a different problem.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  await streamCueCard(
+    sessionId,
+    {
+      kind: analysis?.kind === "docs" ? "technical" : "coding",
+      text: question,
+    },
+    emit,
+    extras,
+    source,
+    true,
+    {
+      imageBase64: image,
+      mimeType,
+      groundToScreen: true,
+    },
+  );
+}
+
 export async function handleScreenFrame(
   sessionId: string,
   input: {
@@ -858,63 +947,14 @@ export async function handleScreenFrame(
   const state = mem(sessionId);
   const image = input.imageBase64?.trim() ?? "";
   if (image.length < 800) return;
-  if (state.visionBusy) return;
-  const bigChange = (input.diffRatio ?? 0) >= 0.25;
-  if (!bigChange) return;
+  if (state.visionBusy || holdingLiveAnswer(sessionId)) return;
+  if ((input.diffRatio ?? 0) < 0.08) return;
   if (!aiStatus().llm) return;
 
   state.visionBusy = true;
   try {
-    const analysis = await analyzeScreen(image, input.mimeType, { detail: "low" });
     state.lastVisionAt = Date.now();
-    if (!analysis || analysis.kind === "idle" || analysis.confidence < 0.45) {
-      return;
-    }
-    if (!analysis.title && !analysis.problem && analysis.ocrText.length < 20) {
-      return;
-    }
-
-    state.screen = { ...analysis, at: Date.now() };
-    const holding = holdingLiveAnswer(sessionId);
-    if (!holding) {
-      await emit({
-        type: "screen.insight",
-        kind: analysis.kind,
-        title: analysis.title,
-        text: (analysis.problem || analysis.ocrText).slice(0, 280),
-        ocrText: analysis.ocrText,
-      });
-    }
-
-    if (
-      !holding &&
-      analysis.needsHelp &&
-      analysis.confidence >= 0.65 &&
-      (analysis.kind === "code" || analysis.kind === "docs")
-    ) {
-      const question = analysis.title
-        ? `On screen: ${analysis.title}`
-        : `On screen: ${(analysis.problem || analysis.ocrText).slice(0, 180)}`;
-      await streamCueCard(
-        sessionId,
-        {
-          kind: analysis.kind === "code" ? "coding" : "other",
-          text: question,
-        },
-        emit,
-        extras,
-        "screen",
-      );
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/401|invalid api key|incorrect api key/i.test(message)) {
-      await emit({
-        type: "session.error",
-        code: "no_ai_key",
-        message: "Subscribe on the Plan page, or add your model key there.",
-      });
-    }
+    await solveFromScreenshot(sessionId, image, input.mimeType, emit, extras, "screen");
   } finally {
     state.visionBusy = false;
   }
@@ -953,47 +993,24 @@ export async function handleAssistRequest(
     return;
   }
 
-  if (input.action === "screen" && input.imageBase64) {
-    try {
-      const analysis = await analyzeScreen(input.imageBase64, input.mimeType, {
-        detail: input.smart ? "high" : "low",
+  if (input.action === "screen") {
+    if (!input.imageBase64) {
+      await emit({
+        type: "session.error",
+        code: "no_prompt",
+        message: "Could not capture the screen. Enable Screen Recording and try again.",
       });
-      if (analysis && analysis.kind !== "idle") {
-        state.screen = { ...analysis, at: Date.now() };
-        await emit({
-          type: "screen.insight",
-          kind: analysis.kind,
-          title: analysis.title,
-          text: (analysis.problem || analysis.ocrText).slice(0, 280),
-          ocrText: analysis.ocrText,
-        });
-        const question = analysis.title
-          ? `On screen: ${analysis.title}. ${analysis.problem || analysis.ocrText}`.slice(0, 400)
-          : `Solve what is on my screen: ${(analysis.problem || analysis.ocrText).slice(0, 300)}`;
-        await streamCueCard(
-          sessionId,
-          {
-            kind: analysis.kind === "code" ? "coding" : "technical",
-            text: question,
-          },
-          emit,
-          extras,
-          "assist",
-          Boolean(input.smart),
-        );
-        return;
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (/401|invalid api key|incorrect api key/i.test(message)) {
-        await emit({
-          type: "session.error",
-          code: "no_ai_key",
-          message: "The model key was rejected. Check the Plan page and try again.",
-        });
-        return;
-      }
+      return;
     }
+    await solveFromScreenshot(
+      sessionId,
+      input.imageBase64,
+      input.mimeType,
+      emit,
+      extras,
+      "assist",
+    );
+    return;
   }
 
   const built = assistPrompt(

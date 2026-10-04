@@ -43,6 +43,7 @@ export const state = {
   sessionStartedAt: 0,
   clock: 0,
   turns: [] as Turn[],
+  busy: false,
 };
 
 export function viewingLive() {

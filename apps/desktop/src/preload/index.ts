@@ -104,6 +104,16 @@ contextBridge.exposeInMainWorld("copilot", {
     ipcRenderer.on("assist:screen", listener);
     return () => ipcRenderer.removeListener("assist:screen", listener);
   },
+  onShareToggle: (cb: () => void) => {
+    const listener = () => cb();
+    ipcRenderer.on("hud:share", listener);
+    return () => ipcRenderer.removeListener("hud:share", listener);
+  },
+  onAssistAction: (cb: (action: string) => void) => {
+    const listener = (_e: unknown, action: string) => cb(action);
+    ipcRenderer.on("assist:action", listener);
+    return () => ipcRenderer.removeListener("assist:action", listener);
+  },
   onContextClear: (cb: () => void) => {
     const listener = () => cb();
     ipcRenderer.on("context:clear", listener);

@@ -361,6 +361,7 @@ ipcMain.handle("capture:stop", () => {
 
 ipcMain.handle("capture:shot", async () => {
   try {
+    noteHudMotion();
     const shot = await grabScreenshot();
     if (!shot) return { ok: false, error: "No display to capture" };
     return { ok: true, ...shot };
@@ -695,7 +696,12 @@ app.whenReady().then(async () => {
     home: () => openHome("#overview"),
     listen: () => win?.webContents.send("listen:toggle"),
     assist: () => win?.webContents.send("assist:trigger"),
+    say_next: () => win?.webContents.send("assist:action", "say_next"),
+    follow_up: () => win?.webContents.send("assist:action", "follow_up"),
+    fact_check: () => win?.webContents.send("assist:action", "fact_check"),
+    recap: () => win?.webContents.send("assist:action", "recap"),
     screen: () => win?.webContents.send("assist:screen"),
+    share: () => win?.webContents.send("hud:share"),
     clear: () => win?.webContents.send("context:clear"),
     interact: () => toggleHudInteract(),
   });

@@ -1,12 +1,60 @@
 import { client, currentAi, isClaude, models } from "./client.js";
+import { rawBase64 } from "./vision.js";
 
-export async function* streamChat(input: {
+export type ChatImage = {
+  base64: string;
+  mimeType?: string;
+  detail?: "low" | "high";
+};
+
+type ChatInput = {
   system: string;
   user: string;
   model: string;
   temperature: number;
   maxTokens: number;
-}): AsyncGenerator<string, { inputTokens: number; outputTokens: number }> {
+  image?: ChatImage;
+};
+
+function imageMime(image?: ChatImage) {
+  return image?.mimeType?.includes("png") ? "image/png" : "image/jpeg";
+}
+
+function openAiUserContent(input: ChatInput) {
+  if (!input.image?.base64) return input.user;
+  const mime = imageMime(input.image);
+  return [
+    { type: "text" as const, text: input.user },
+    {
+      type: "image_url" as const,
+      image_url: {
+        url: `data:${mime};base64,${rawBase64(input.image.base64)}`,
+        detail: input.image.detail ?? "high",
+      },
+    },
+  ];
+}
+
+function claudeUserContent(input: ChatInput) {
+  if (!input.image?.base64) return input.user;
+  const mime = imageMime(input.image);
+  return [
+    {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mime,
+        data: rawBase64(input.image.base64),
+      },
+    },
+    { type: "text", text: input.user },
+  ];
+}
+
+export async function* streamChat(input: ChatInput): AsyncGenerator<
+  string,
+  { inputTokens: number; outputTokens: number }
+> {
   const creds = currentAi();
   if (!creds?.apiKey) throw new Error("No model key.");
   if (isClaude(creds)) {
@@ -22,7 +70,7 @@ export async function* streamChat(input: {
     max_tokens: input.maxTokens,
     messages: [
       { role: "system", content: input.system },
-      { role: "user", content: input.user },
+      { role: "user", content: openAiUserContent(input) },
     ],
   });
   let inputTokens = 0;
@@ -64,7 +112,7 @@ export async function completeChat(input: {
     response_format: input.json ? { type: "json_object" } : undefined,
     messages: [
       { role: "system", content: input.system },
-      { role: "user", content: input.user },
+      { role: "user", content: openAiUserContent(input) },
     ],
   });
   return (completion.choices[0]?.message?.content ?? "").trim();
@@ -84,7 +132,7 @@ function claudeUrl(baseURL?: string) {
 async function completeClaude(
   apiKey: string,
   baseURL: string | undefined,
-  input: { system: string; user: string; model: string; temperature: number; maxTokens: number },
+  input: ChatInput,
 ) {
   const res = await fetch(claudeUrl(baseURL), {
     method: "POST",
@@ -98,7 +146,7 @@ async function completeClaude(
       max_tokens: input.maxTokens,
       temperature: input.temperature,
       system: input.system,
-      messages: [{ role: "user", content: input.user }],
+      messages: [{ role: "user", content: claudeUserContent(input) }],
     }),
   });
   if (!res.ok) {
@@ -118,7 +166,7 @@ async function completeClaude(
 async function* streamClaude(
   apiKey: string,
   baseURL: string | undefined,
-  input: { system: string; user: string; model: string; temperature: number; maxTokens: number },
+  input: ChatInput,
 ): AsyncGenerator<string, { inputTokens: number; outputTokens: number }> {
   const res = await fetch(claudeUrl(baseURL), {
     method: "POST",
@@ -133,7 +181,7 @@ async function* streamClaude(
       temperature: input.temperature,
       system: input.system,
       stream: true,
-      messages: [{ role: "user", content: input.user }],
+      messages: [{ role: "user", content: claudeUserContent(input) }],
     }),
   });
   if (!res.ok || !res.body) {

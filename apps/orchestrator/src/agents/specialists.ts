@@ -77,9 +77,9 @@ SAY is the story. PUSH is the number or what I would do differently. TRAP is sta
     ],
     style: `Coding question.
 Say the approach in 2–3 spoken sentences (idea, then time and space complexity).
-Then one complete, indented, runnable fenced code block (5–30 lines) in the language they asked for, otherwise Python. Brief comments on the tricky lines only.
+Then one complete, indented, runnable fenced code block (5–30 lines) in the language on the screen or that they asked for — editor tab, starter code, or language dropdown. If that is Java, C++, JavaScript, SQL, Go, or anything else, use that language. Never switch to Python (or any other language) unless that is what is on screen.
 PUSH is the edge case or follow-up, not more code.
-Never write code as prose.`,
+Never write code as prose. Never solve a famous similar problem (not Two Sum if they asked something else).`,
     maxTokens: 700,
     temperature: 0.2,
     writesCode: true,

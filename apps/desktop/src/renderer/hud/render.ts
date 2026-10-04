@@ -37,10 +37,13 @@ export function applyAppearance() {
   $.solidHover.checked = state.solidOnHover;
   $.shareVisible.checked = state.shareVisible;
   $.shareBtn.setAttribute("aria-pressed", state.shareVisible ? "true" : "false");
-  $.shareBtn.textContent = state.shareVisible ? "On share" : "Hidden";
+  const shareChord = formatAccelerator(
+    state.shortcuts.share,
+    window.copilot?.platform ?? "darwin",
+  );
   $.shareBtn.title = state.shareVisible
-    ? "Visible on screen share — click to hide from Zoom/Meet"
-    : "Hidden from screen share — click to show on share";
+    ? `Screen share — HUD visible on Zoom/Meet. ${shareChord} to hide it.`
+    : `Screen share — HUD hidden from Zoom/Meet. ${shareChord} to show it.`;
 }
 
 export function applyCollapsed(next: boolean) {
@@ -77,7 +80,24 @@ export function setAnswer(text: string, placeholder: boolean) {
     $.answer.textContent = text;
     return;
   }
+  const top = $.answer.scrollTop;
   $.answer.innerHTML = formatAnswer(text);
+  $.answer.scrollTop = top;
+}
+
+export function setBusy(on: boolean, label = "Working on it…") {
+  state.busy = on;
+  $.answerLoader.hidden = !on;
+  if (on) $.answerLoaderText.textContent = label;
+  $.hud.classList.toggle("busy", on);
+  for (const btn of $.actions.querySelectorAll("button")) {
+    btn.disabled = on;
+  }
+  $.askInput.disabled = on;
+}
+
+export function hideAnswerLoader() {
+  $.answerLoader.hidden = true;
 }
 
 export function renderTurn(index: number) {
@@ -104,7 +124,6 @@ export function renderTurn(index: number) {
     setAnswer(live ? "Thinking…" : "No answer stored.", true);
   } else {
     setAnswer(turn.answer, false);
-    $.answer.scrollTop = 0;
   }
 }
 
@@ -135,6 +154,7 @@ export function resetCard(message: string, answer: string) {
   $.question.textContent = message;
   $.question.classList.add("idle");
   setPending();
+  setBusy(false);
   setAnswer(answer, true);
 }
 
@@ -184,13 +204,17 @@ export function formatClock(ms: number) {
 }
 
 export function applySessionClock() {
-  if (!state.sessionId) {
+  const live = Boolean(state.sessionId);
+  $.hud.classList.toggle("idle", !live);
+  if (!live) {
     $.sessionBtn.textContent = "Start";
     $.sessionBtn.classList.remove("live");
+    $.sessionBtn.title = "Start session";
     return;
   }
   $.sessionBtn.classList.add("live");
-  $.sessionBtn.textContent = formatClock(Date.now() - state.sessionStartedAt);
+  $.sessionBtn.textContent = `End ${formatClock(Date.now() - state.sessionStartedAt)}`;
+  $.sessionBtn.title = "End session";
 }
 
 export function startSessionClock() {
@@ -216,9 +240,26 @@ export function applyShortcutLabels() {
   $.collapseBtn.title = `Collapse to bar — ${chord("collapse")}`;
   $.hideBtn.title = `Hide — ${chord("hide")}`;
   $.homeBtn.title = `Open dashboard — ${chord("home")}`;
+  $.shareBtn.title = state.shareVisible
+    ? `Screen share — HUD visible on Zoom/Meet. ${chord("share")} to hide it.`
+    : `Screen share — HUD hidden from Zoom/Meet. ${chord("share")} to show it.`;
   $.askInput.placeholder = `Ask AI — ${chord("assist")}`;
   $.modeShortcut.textContent = `Shortcut ${chord("listen")}`;
-  $.shortcutHint.textContent = `${chord("assist")} ask · ${chord("screen")} screen · ${chord("interact")} HUD clicks · ${chord("clear")} clear`;
+  $.shortcutHint.textContent = `${chord("say_next")} say · ${chord("follow_up")} follow-ups · ${chord("fact_check")} fact · ${chord("recap")} recap · ${chord("screen")} screen`;
+  const labels: Record<string, string> = {
+    say_next: "What should I say",
+    follow_up: "Follow-ups",
+    fact_check: "Fact check",
+    recap: "Recap",
+    screen: "Solve screen",
+  };
+  for (const btn of $.actions.querySelectorAll("button[data-action]")) {
+    const action = btn.getAttribute("data-action") ?? "";
+    const name = labels[action];
+    if (!name) continue;
+    const key = action === "screen" ? "screen" : action;
+    btn.textContent = `${name}  ${chord(key as keyof typeof state.shortcuts)}`;
+  }
 }
 
 export { prettyKind, liveTurn, viewingLive };

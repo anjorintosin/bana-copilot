@@ -1,7 +1,7 @@
 {
   "name": "@meeting-copilot/desktop",
   "productName": "Bana Copilot",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Bana Copilot — interview overlay",
   "author": "Bana Copilot",

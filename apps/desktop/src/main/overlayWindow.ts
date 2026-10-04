@@ -60,6 +60,7 @@ export function attachHudOverlay(win: BrowserWindow) {
 
   win.on("focus", () => {
     if (allowKeyboard) return;
+    if (sessionStealth && !clickThrough) return;
     refuseFocus(win);
   });
 
@@ -89,11 +90,6 @@ function pinHud(win: BrowserWindow) {
 function refuseFocus(win: BrowserWindow) {
   allowKeyboard = false;
   win.setFocusable(false);
-  try {
-    win.blur();
-  } catch {
-    /* already blurred */
-  }
 }
 
 export function showHudInactive() {
@@ -136,7 +132,7 @@ export function setOverlaySession(active: boolean, homeWin?: BrowserWindow | nul
   pinHud(hud);
 
   if (active) {
-    setHudClickThrough(true);
+    setHudClickThrough(false);
     if (homeWin && !homeWin.isDestroyed()) homeWin.hide();
     if (process.platform === "darwin") {
       app.dock?.hide();
