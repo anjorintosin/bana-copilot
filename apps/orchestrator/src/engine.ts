@@ -1,7 +1,7 @@
 import { parseLadder } from "@meeting-copilot/types";
 import { SPECIALISTS, type Specialist, type SpecialistId } from "./agents/specialists.js";
 import { models, pickAnswerModel } from "./llm/client.js";
-import { completeChat, streamChat } from "./llm/chat.js";
+import { completeChat, streamChat, type ChatImage } from "./llm/chat.js";
 import { getStage } from "./agents/stages.js";
 import { intentGuidance, type InterviewerIntent } from "./intent.js";
 import { CLASSIFY_PROMPT, buildCachedSystemPrompt } from "./llm/prompts.js";
@@ -89,6 +89,8 @@ export async function* streamAnswer(input: {
   claims?: string;
   intent?: InterviewerIntent;
   smart?: boolean;
+  image?: ChatImage;
+  groundToScreen?: boolean;
 }): AsyncGenerator<string, AnswerTelemetry> {
   const specialist = input.specialist;
   const model = pickAnswerModel({
@@ -107,15 +109,31 @@ export async function* streamAnswer(input: {
     outputTokens: 0,
   };
 
-  const prior = input.prior
-    .slice(-2)
-    .map(
-      (turn) =>
-        `Q (${turn.kind}): ${turn.question}\nA: ${turn.answer.slice(0, 280)}`,
-    )
-    .join("\n\n");
+  const prior = input.groundToScreen
+    ? ""
+    : input.prior
+        .slice(-2)
+        .map(
+          (turn) =>
+            `Q (${turn.kind}): ${turn.question}\nA: ${turn.answer.slice(0, 280)}`,
+        )
+        .join("\n\n");
 
-  const user = `Specialist: ${specialist.label}
+  const user = input.groundToScreen
+    ? `This is a solve-on-screen turn. A screenshot is attached — that image is the only question.
+Solve ONLY the problem visible in the image. The extract below may be incomplete; if it disagrees with the image, trust the image.
+Use the exact programming language in the editor, starter code, or language dropdown. Never switch languages. Never default to Python unless the screen is Python.
+Do not reuse a previous interview question. Do not invent a similar LeetCode problem.
+If you cannot read the problem, say that in SAY. Do not guess.
+
+Screen extract:
+${(input.screenContext || "(none)").slice(0, 1800)}
+
+They asked:
+${input.question}
+
+Use the ${specialist.label} style. Gist, then SAY, PUSH, TRAP.`
+    : `Specialist: ${specialist.label}
 Interview stage: ${getStage(input.stage).label}
 Stage guidance: ${getStage(input.stage).style}
 
@@ -147,6 +165,7 @@ Use the ${specialist.label} style. Gist, then SAY, PUSH, TRAP.`;
     model,
     temperature: specialist.temperature,
     maxTokens: specialist.maxTokens,
+    image: input.image,
   });
   let next = await stream.next();
   while (!next.done) {

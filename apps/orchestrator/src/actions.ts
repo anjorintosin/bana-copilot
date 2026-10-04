@@ -63,14 +63,14 @@ export function assistPrompt(
   }
 
   if (action === "screen") {
+    if (!typedText) {
+      return { error: "Could not read a problem on screen. Make sure the question is fully visible and try again." };
+    }
     return {
       action,
       kind: "coding",
       label: "On screen",
-      text:
-        typedText ||
-        fallback.trim() ||
-        "Solve what is on my screen. If it is a coding or design problem, give the approach and the answer.",
+      text: typedText,
     };
   }
 

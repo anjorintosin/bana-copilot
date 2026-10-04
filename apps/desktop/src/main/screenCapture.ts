@@ -88,10 +88,15 @@ export function noteHudMotion() {
   rebaseNext = true;
 }
 
-function jpegPayload(image: NativeImage): string {
-  let jpeg = image.toJPEG(58);
-  if (jpeg.length > 380_000) {
-    jpeg = image.resize({ width: 960, height: 540 }).toJPEG(50);
+function jpegPayload(
+  image: NativeImage,
+  opts: { quality?: number; maxBytes?: number; maxWidth?: number } = {},
+): string {
+  const quality = opts.quality ?? 58;
+  const maxBytes = opts.maxBytes ?? 380_000;
+  let jpeg = image.toJPEG(quality);
+  if (jpeg.length > maxBytes) {
+    jpeg = image.resize({ width: opts.maxWidth ?? 960 }).toJPEG(Math.max(48, quality - 12));
   }
   return Buffer.from(jpeg).toString("base64");
 }
@@ -153,7 +158,7 @@ export function startScreenWatch(
         lastHiresAt = now;
         const hires = await desktopCapturer.getSources({
           types: ["screen"],
-          thumbnailSize: { width: 1280, height: 720 },
+          thumbnailSize: { width: 1600, height: 900 },
         });
         const shot =
           hires.find((item) => item.id === primary.id) ?? hires[0] ?? primary;
@@ -179,14 +184,18 @@ export function startScreenWatch(
 export async function grabScreenshot() {
   const sources = await desktopCapturer.getSources({
     types: ["screen"],
-    thumbnailSize: { width: 1280, height: 720 },
+    thumbnailSize: { width: 1920, height: 1080 },
   });
   const primary = sources[0];
   if (!primary) return null;
   return {
     name: primary.name,
     dataUrl: primary.thumbnail.toDataURL(),
-    jpegBase64: jpegPayload(primary.thumbnail),
+    jpegBase64: jpegPayload(primary.thumbnail, {
+      quality: 76,
+      maxBytes: 900_000,
+      maxWidth: 1600,
+    }),
   };
 }
 

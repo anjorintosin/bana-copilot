@@ -9,8 +9,10 @@ import {
   renderTurn,
   resetCard,
   setAnswer,
+  setBusy,
   setDot,
   setPending,
+  hideAnswerLoader,
   showQuestion,
   showRecap,
   startSessionClock,
@@ -27,6 +29,7 @@ export type SocketHooks = {
   startListeningCapture: () => Promise<void>;
   stopListeningCapture: () => void;
   rearmListen: () => void;
+  watchAndSolveScreen: () => Promise<void>;
 };
 
 export function send(event: ClientEvent | Record<string, unknown>) {
@@ -141,18 +144,19 @@ export function connectGateway(hooks: SocketHooks) {
       if (msg.type === "answer.started") {
         const turn = state.turns.find((item) => item.id === msg.questionId);
         if (turn) turn.answer = "";
+        if (!state.busy) setBusy(true, "Writing answer…");
         if (viewingLive()) setAnswer("Thinking…", true);
       }
       if (msg.type === "answer.delta") {
         const turn =
           state.turns.find((item) => item.id === msg.questionId) ?? liveTurn();
         if (turn) turn.answer += msg.text;
+        hideAnswerLoader();
         if (
           viewingLive() &&
           (!msg.questionId || state.turns[state.viewIndex]?.id === msg.questionId)
         ) {
           setAnswer(turn?.answer ?? "", false);
-          $.answer.scrollTop = $.answer.scrollHeight;
         }
       }
       if (msg.type === "answer.completed") {
@@ -162,6 +166,7 @@ export function connectGateway(hooks: SocketHooks) {
           turn.done = true;
           if (typeof msg.text === "string" && msg.text) turn.answer = msg.text;
         }
+        setBusy(false);
         if (viewingLive()) renderTurn(state.viewIndex);
         $.liveText.textContent = "Answer complete";
       }
@@ -187,15 +192,21 @@ export function connectGateway(hooks: SocketHooks) {
         if (!state.capture) {
           void hooks.startListeningCapture();
         }
+        void hooks.watchAndSolveScreen();
       }
       if (msg.type === "session.ended") {
         void window.copilot?.setSessionActive(false);
         if (state.capture) hooks.stopListeningCapture();
+        if (state.watchingScreen) {
+          void window.copilot?.stopScreen();
+          state.watchingScreen = false;
+        }
         state.sessionId = "";
         $.sessionStatus.textContent = "Session ended and saved.";
         applySessionClock();
         hooks.stopMeetingWatch();
         stopSessionClock();
+        setBusy(false);
         hooks.refreshHistory();
       }
       if (msg.type === "context.cleared") {
@@ -211,10 +222,12 @@ export function connectGateway(hooks: SocketHooks) {
         $.sessionStatus.textContent = msg.message;
         $.liveText.textContent = msg.message;
         if (msg.code !== "stt_fallback" && msg.code !== "stt_network") {
+          setBusy(false);
           setAnswer(String(msg.message), true);
         }
       }
       if (msg.type === "answer.cancelled") {
+        setBusy(false);
         $.liveText.textContent = "Answer cancelled";
       }
     } catch {
