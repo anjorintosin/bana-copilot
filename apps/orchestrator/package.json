@@ -1,0 +1,23 @@
+{
+  "name": "@meeting-copilot/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "replay": "tsx src/eval/replay.ts"
+  },
+  "dependencies": {
+    "@meeting-copilot/types": "0.1.0",
+    "openai": "^4.104.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

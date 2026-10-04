@@ -1,0 +1,57 @@
+{
+  "name": "@meeting-copilot/desktop",
+  "productName": "Bana Copilot",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "pack": "node scripts/build.mjs && electron-builder --publish never",
+    "release": "node scripts/build.mjs && electron-builder --publish always"
+  },
+  "dependencies": {
+    "@meeting-copilot/types": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.5",
+    "typescript": "^5.8.3"
+  },
+  "build": {
+    "appId": "com.banacopilot.desktop",
+    "productName": "Bana Copilot",
+    "files": [
+      "dist/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "anjorintosin",
+      "releaseType": "release"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null,
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Bana Copilot uses the microphone to transcribe the conversation in real time.",
+        "NSCameraUsageDescription": "Camera access is unused; this string is required by some capture prompts.",
+        "NSAudioCaptureUsageDescription": "Bana Copilot captures meeting audio you authorize."
+      }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    }
+  }
+}
