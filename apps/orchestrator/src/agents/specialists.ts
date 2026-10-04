@@ -90,7 +90,7 @@ Never write code as prose.`,
     signals: [
       /\bdesign (a|an|the)\b/i,
       /\bhow would you (design|build|architect|scale)\b/i,
-      /\b(scalab|architecture|distributed|load balanc|shard|replicat|cache|caching|queue|kafka|throughput|latency|cap theorem|consistency|availability|rate limit|cdn|microservice)\w*/i,
+      /\b(scalab|architecture|distributed|load balanc|shard|replicat|cache|caching|queue|kafka|throughput|latency|cap theorem|consistency|availability|rate limit|cdn|microservice|pagination|cursor pagination|keyset)\w*/i,
     ],
     style: `System design / architecture question. Speak it like the first two minutes at a whiteboard — judgment, not a textbook.
 
@@ -103,9 +103,9 @@ Always hit, out loud:
 4. The failure I worry about (hot shard, stale cache, split brain, replay) and how I would detect or contain it.
 5. What I would build first vs what I would add at 10x.
 
-If they asked a concept (CAP, partitioning, consistency), answer by designing a small system around it: "In a payments ledger I'd pick X because… In a feed I'd pick Y because…"
+If they asked a concept (CAP, partitioning, consistency, pagination), answer by designing a small system around it: "In a payments ledger I'd pick X because…"
 Use one resume system if it fits. No spec dumps, no component laundry lists.
-SAY is the first 20 seconds (scale, path, the choice). PUSH is the failure and 10x. TRAP is the definition.`,
+SAY is the first 15 seconds: scale, path, the one choice. PUSH is trade-offs, failure, and 10x — including cursor vs OFFSET if they asked about paging. TRAP is the definition.`,
     maxTokens: 560,
     temperature: 0.45,
   },
@@ -115,16 +115,21 @@ SAY is the first 20 seconds (scale, path, the choice). PUSH is the failure and 1
     signals: [
       /\bwhat is (a|an|the)?\b/i,
       /\b(explain|difference between|how does|how do|what happens when|compare)\b/i,
-      /\b(javascript|typescript|python|java|react|node|sql|http|tcp|dns|rest|graphql|docker|kubernetes|aws|oauth|jwt|thread|process|memory|index|transaction|closure|promise|garbage collect)\w*/i,
+      /\b(javascript|typescript|python|java|react|node|sql|http|tcp|dns|rest|graphql|docker|kubernetes|aws|oauth|jwt|thread|process|memory|index|transaction|closure|promise|garbage collect|pagination|cursor|offset|keyset)\w*/i,
     ],
     style: `Technical knowledge question.
 
-If it is a definition-style prompt (what is X, CAP, consistency, partitioning, overload vs override, REST vs gRPC):
-do not recite the textbook. SAY: one-line working answer and when I would choose each option. PUSH: the failure or footgun.
+SAY is two sentences: the working answer and the default I would ship. Do not restate it. Do not list every option yet.
 
-If it is a narrow language/API fact, keep SAY short: direct answer, one example. PUSH can be one caveat.
+PUSH is required on compare / architecture / pagination questions. That is the only place for trade-offs.
 
-Never end on "it depends" without naming the default I would ship.`,
+Pagination / cursors / OFFSET: SAY = I would page with a keyset cursor on the sort key plus a unique id, because OFFSET gets slower and can skip or repeat rows when writes land between pages. PUSH = OFFSET is fine for small admin tables that need jump-to-page; cursors cannot do page numbers; the sort must be unique or rows vanish; keyset vs seek; what breaks if someone sorts on a non-unique created_at.
+
+CAP / consistency / REST vs gRPC / indexes: SAY = the default I would ship in one system. PUSH = the other option, the failure, and when I would switch.
+
+If it is a narrow language/API fact, keep SAY to the fact plus one example. PUSH is one caveat.
+
+Never end on "it depends" without naming the default I would ship. Never put the cursor-vs-offset lecture in SAY.`,
     maxTokens: 400,
     temperature: 0.35,
   },

@@ -16,6 +16,7 @@ export type ScreenFrame = {
 export type CopilotBridge = {
   apiUrl: string;
   httpUrl: string;
+  packaged?: boolean;
   platform: string;
   ensureAuth: () => Promise<{ token: string; userId: string }>;
   listSessions: (token: string) => Promise<{

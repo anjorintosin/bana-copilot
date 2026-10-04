@@ -123,6 +123,12 @@ const $ = {
 
 let token = "";
 let currentAccount: Account | null = null;
+let serverEnvKey = false;
+
+function canUseAi() {
+  if (currentAccount?.key.configured) return true;
+  return Boolean(serverEnvKey && !window.copilot?.packaged);
+}
 let kind: DocumentKind = "resume";
 let pendingPdf: { name: string; data: string } | null = null;
 let latest: Partial<Record<DocumentKind, Doc>> = {};
@@ -214,7 +220,7 @@ function renderReady(profile: Profile) {
         ? `${stories.filter(storyIsRehearsed).length}/${stories.length} stories rehearsed`
         : "Practice this role",
     ],
-    [Boolean(currentAccount?.key.configured), "Model key on Plan"],
+    [Boolean(currentAccount?.key.configured || serverEnvKey), "Model key"],
     [Boolean(latest.job), "Job posting"],
     [Boolean(latest.company), "Company notes"],
   ] as const;
@@ -653,9 +659,10 @@ async function loadAll() {
   renderSessions($.overviewSessions, (sessions.sessions ?? []).slice(0, 4));
   renderSessions($.sessionTable, sessions.sessions ?? []);
   renderPracticeMeta();
-  $.lede.textContent = account.key.configured
-    ? "Add a resume and role so live answers sound like you. Start interview opens the HUD."
-    : "Add your model key on Plan first. Start interview opens the HUD after that.";
+  $.lede.textContent =
+    account.key.configured || serverEnvKey
+      ? "Add a resume and role so live answers sound like you. Start interview opens the HUD."
+      : "Add your model key on Plan first. Start interview opens the HUD after that.";
 }
 
 document.querySelectorAll<HTMLButtonElement>(".nav-btn").forEach((btn) => {
@@ -775,7 +782,7 @@ $.rebuildStories.addEventListener("click", async () => {
 });
 
 $.start.addEventListener("click", () => {
-  if (!currentAccount?.key.configured) {
+  if (!canUseAi()) {
     showPage("plan");
     const status = document.getElementById("key-status");
     if (status) status.textContent = "Add your model key here before you start.";
@@ -786,7 +793,7 @@ $.start.addEventListener("click", () => {
 
 $.practiceStart.addEventListener("click", async () => {
   if (!token) return;
-  if (!currentAccount?.key.configured) {
+  if (!canUseAi()) {
     showPage("plan");
     const status = document.getElementById("key-status");
     if (status) status.textContent = "Add your model key here before you practice.";
@@ -832,7 +839,7 @@ $.practiceAgain.addEventListener("click", () => {
 });
 
 $.practiceLive.addEventListener("click", () => {
-  if (!currentAccount?.key.configured) {
+  if (!canUseAi()) {
     showPage("plan");
     const status = document.getElementById("key-status");
     if (status) status.textContent = "Add your model key here before you start.";
@@ -996,6 +1003,12 @@ async function boot() {
   try {
     const auth = await window.copilot.ensureAuth();
     token = auth.token;
+    try {
+      const health = await fetch(`${window.copilot.httpUrl}/health`).then((r) => r.json());
+      serverEnvKey = Boolean(health.ai?.llm) && !window.copilot.packaged;
+    } catch {
+      serverEnvKey = false;
+    }
     await loadAll();
     await loadSettings();
     window.copilot.onProfileChanged(() => {

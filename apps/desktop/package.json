@@ -1,7 +1,7 @@
 {
   "name": "@meeting-copilot/desktop",
   "productName": "Bana Copilot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
@@ -17,7 +17,7 @@
     "@types/node": "^22.15.3",
     "electron": "^39.2.7",
     "electron-builder": "^26.15.3",
-    "esbuild": "^0.25.5",
+    "esbuild": "^0.25.12",
     "typescript": "^5.8.3"
   },
   "build": {

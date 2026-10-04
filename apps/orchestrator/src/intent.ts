@@ -118,10 +118,10 @@ export function effectiveStage(
 
 export function intentGuidance(intent?: InterviewerIntent) {
   if (intent === "feedback") {
-    return "They pushed back on the last answer as shallow or textbook. Stay in the same story and claims. SAY should be the next layer (choice, failure, 10x). Do not restart.";
+    return "They said the last answer was shallow or textbook. Do not repeat the definition. SAY this turn is the missing trade-off (cursor vs OFFSET, failure, 10x). Then a deeper PUSH. Stay in the same story and claims.";
   }
   if (intent === "probe") {
-    return "This is a follow-up probe. Stay in the same story and claims. Do not start a new example.";
+    return "Follow-up probe. They already heard the first breath. Do not restart or restate. SAY is the previous PUSH: trade-off, cursor vs offset, failure. Then write a new PUSH one layer deeper.";
   }
   if (intent === "wrap") {
     return "They are closing. Questions for them, a tight recap, or next steps. No new coding problem.";

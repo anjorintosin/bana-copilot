@@ -37,7 +37,10 @@ export const NEED_KEY = "Add your model key on the Plan page to try Bana Copilot
 
 export function currentAi(): AiCreds | null {
   const local = store.getStore();
-  return local?.apiKey ? local : null;
+  if (local?.apiKey) return local;
+  if (process.env.NODE_ENV === "production") return null;
+  const key = process.env.OPENAI_API_KEY?.trim();
+  return key ? { apiKey: key, source: "env" } : null;
 }
 
 export function currentAiKey() {

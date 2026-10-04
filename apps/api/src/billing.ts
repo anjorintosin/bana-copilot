@@ -52,7 +52,7 @@ const SEED: {
 export type AiCreds = {
   apiKey: string;
   baseURL?: string;
-  source: "hosted" | "byok";
+  source: "hosted" | "byok" | "env";
   provider?: "openai" | "claude" | "groq" | "compatible";
 };
 
@@ -437,6 +437,19 @@ async function loadUserKey(userId: string): Promise<AiCreds | null> {
 export async function resolveAi(userId: string): Promise<AiResolve> {
   const creds = await loadUserKey(userId);
   if (creds) return { ok: true, creds };
+
+  const envKey =
+    process.env.NODE_ENV === "production" ? "" : process.env.OPENAI_API_KEY?.trim();
+  if (envKey) {
+    return {
+      ok: true,
+      creds: {
+        apiKey: envKey,
+        source: "env",
+        provider: envKey.startsWith("sk-ant-") ? "claude" : "openai",
+      },
+    };
+  }
 
   return {
     ok: false,
