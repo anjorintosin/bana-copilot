@@ -3,6 +3,9 @@
   "productName": "Bana Copilot",
   "version": "0.1.1",
   "private": true,
+  "description": "Bana Copilot — interview overlay",
+  "author": "Bana Copilot",
+  "homepage": "https://github.com/anjorintosin/bana-copilot-releases",
   "main": "dist/main.js",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -29,11 +32,7 @@
     "directories": {
       "output": "release"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "anjorintosin",
-      "releaseType": "release"
-    },
+    "publish": null,
     "mac": {
       "target": [
         "dmg",
