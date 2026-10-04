@@ -1,0 +1,41 @@
+name: Deploy API
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "apps/api/**"
+      - "apps/orchestrator/**"
+      - "packages/**"
+      - "infra/**"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require EC2 secrets
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$KEY" ]; then
+            echo "Add repository secrets EC2_HOST and EC2_SSH_KEY so this job can SSH to the instance."
+            exit 1
+          fi
+      - name: Install SSH key
+        env:
+          KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/bana-copilot.pem
+          chmod 600 ~/.ssh/bana-copilot.pem
+      - name: Sync and rebuild
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY_FILE: /home/runner/.ssh/bana-copilot.pem
+        run: bash infra/sync-ec2.sh
+      - name: Health
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+        run: curl -fsS --retry 8 --retry-delay 5 "http://$HOST:8787/health"

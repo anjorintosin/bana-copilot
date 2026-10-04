@@ -1,0 +1,1074 @@
+import { randomUUID } from "node:crypto";
+import { LIMITS, sanitizeText } from "@meeting-copilot/types";
+import {
+  extractLatestQuestion,
+  isCandidateSpeech,
+  isCheckIn,
+  isLikelyNewQuestion,
+  isNoiseTranscript,
+  isQuestionLike,
+  looksLikeInterviewer,
+  normalizeQuestion,
+  overlapsAnswer,
+  sameQuestion,
+} from "./questions.js";
+import { aiStatus, runWithAi, type AiCreds } from "./llm/client.js";
+import { analyzeScreen, type ScreenAnalysis } from "./llm/vision.js";
+import {
+  classifyTurn,
+  resolveSpecialist,
+  specialistNeedsRag,
+  streamAnswer,
+  summarizeInterview,
+  spokenBody,
+  toSpoken,
+} from "./engine.js";
+import { formatStory, specialistNeedsStory } from "./stories.js";
+import { RealtimeTranscriber } from "./stt/realtime.js";
+import { WhisperTranscriber } from "./stt/whisper.js";
+import { TurnAssembler } from "./turns.js";
+import { routeQuestion } from "./agents/router.js";
+import { getTrack } from "./agents/tracks.js";
+import {
+  classifyIntent,
+  effectiveStage,
+  inferStage,
+  isShallowProbe,
+  type InterviewerIntent,
+} from "./intent.js";
+import { assistPrompt } from "./actions.js";
+import {
+  emptyClaims,
+  formatClaims,
+  type AssistAction,
+  type AudioSource,
+  type ClaimsLedger,
+  type InterviewStageId,
+  type InterviewTrackId,
+  type ListenMode,
+  type Story,
+} from "@meeting-copilot/types";
+import {
+  heuristicClaims,
+  isFollowUpQuestion,
+  pickLockedStory,
+  refineClaims,
+} from "./claims.js";
+
+type Turn = { question: string; kind: string; answer: string };
+
+type ScreenCtx = ScreenAnalysis & { at: number };
+
+type SessionMemory = {
+  recent: string[];
+  cleanRecent: string[];
+  lastQuestion: string;
+  lastAskedAt: number;
+  answering: boolean;
+  warnedNoKey: boolean;
+  turns: Turn[];
+  speakingUntil: number;
+  screen?: ScreenCtx;
+  lastVisionAt: number;
+  visionBusy: boolean;
+  rollingSummary: string;
+  lastSummaryTurns: number;
+  track: InterviewTrackId;
+  stage: InterviewStageId;
+  inferredStage: InterviewStageId;
+  listenMode: ListenMode;
+  brief: string;
+  briefPromise?: Promise<void>;
+  stories: Story[];
+  claims: ClaimsLedger;
+  pendingTurn: string;
+  ai?: AiCreds | null;
+  job: {
+    title?: string | null;
+    company?: string | null;
+    requirements?: string | null;
+  };
+};
+
+const memory = new Map<string, SessionMemory>();
+
+function mem(sessionId: string): SessionMemory {
+  const existing = memory.get(sessionId);
+  if (existing) return existing;
+  const created: SessionMemory = {
+    recent: [],
+    cleanRecent: [],
+    lastQuestion: "",
+    lastAskedAt: 0,
+    answering: false,
+    warnedNoKey: false,
+    turns: [],
+    speakingUntil: 0,
+    lastVisionAt: 0,
+    visionBusy: false,
+    rollingSummary: "",
+    lastSummaryTurns: 0,
+    track: "auto",
+    stage: "auto",
+    inferredStage: "auto",
+    listenMode: "auto",
+    brief: "",
+    stories: [],
+    claims: emptyClaims(),
+    pendingTurn: "",
+    job: {},
+  };
+  memory.set(sessionId, created);
+  return created;
+}
+
+export function setSessionTrack(sessionId: string, track?: InterviewTrackId) {
+  if (!track) return;
+  mem(sessionId).track = track;
+}
+
+export function configureSession(
+  sessionId: string,
+  cfg: { track?: InterviewTrackId; stage?: InterviewStageId; listenMode?: ListenMode },
+) {
+  const state = mem(sessionId);
+  if (cfg.track) state.track = cfg.track;
+  if (cfg.stage) state.stage = cfg.stage;
+  if (cfg.listenMode) state.listenMode = cfg.listenMode;
+}
+
+export function clearSessionMemory(sessionId: string) {
+  memory.delete(sessionId);
+  stopListening(sessionId);
+}
+
+/** Decide whether a turn is worth answering, and which specialist should answer it. */
+function sessionStage(
+  state: SessionMemory,
+  text?: string,
+  specialistId?: string,
+) {
+  if (state.stage !== "auto") return state.stage;
+  const guess = text ? inferStage(text, specialistId) : null;
+  return effectiveStage(state.stage, guess ?? state.inferredStage);
+}
+
+function pickQuestion(text: string, track: InterviewTrackId, stage?: InterviewStageId) {
+  if (!isQuestionLike(text)) {
+    return { isQuestion: false as const, kind: "other", text };
+  }
+  const specialist = routeQuestion(text, track, undefined, stage);
+  return { isQuestion: true as const, kind: specialist.id, text };
+}
+
+function formatScreenContext(screen?: ScreenCtx) {
+  if (!screen || Date.now() - screen.at > 5 * 60_000) return "";
+  const parts = [
+    screen.title && `Title: ${screen.title}`,
+    screen.problem && `Problem: ${screen.problem}`,
+    screen.ocrText && `Text: ${screen.ocrText}`,
+  ].filter(Boolean);
+  return parts.join("\n");
+}
+
+type AnswerExtras = {
+  ai?: AiCreds | null;
+  resumeContext?: (
+    question: string,
+    opts?: { k?: number },
+  ) => Promise<{
+    context: string;
+    job: { title?: string | null; company?: string | null; requirements?: string | null };
+  }>;
+  candidateBrief?: () => Promise<{
+    brief: string;
+    job: { title?: string | null; company?: string | null; requirements?: string | null };
+    stories?: Story[];
+  }>;
+};
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise.then((value) => value, () => null),
+    new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), ms);
+    }),
+  ]);
+}
+
+async function ensureBrief(sessionId: string, extras?: AnswerExtras) {
+  const state = mem(sessionId);
+  if (state.brief || !extras?.candidateBrief) return;
+  if (!state.briefPromise) {
+    state.briefPromise = extras
+      .candidateBrief()
+      .then((loaded) => {
+        state.brief = loaded.brief;
+        state.job = loaded.job;
+        state.stories = loaded.stories ?? [];
+      })
+      .catch(() => {
+        /* answers still work without a brief */
+      });
+  }
+  await state.briefPromise;
+}
+
+function withSessionAi<T>(sessionId: string, fn: () => T): T {
+  return runWithAi(mem(sessionId).ai, fn);
+}
+
+async function streamCueCard(
+  sessionId: string,
+  classified: { kind: string; text: string; intent?: InterviewerIntent },
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+  extras?: AnswerExtras,
+  source: "audio" | "screen" | "assist" = "audio",
+  smart = false,
+) {
+  const state = mem(sessionId);
+  if (extras?.ai) state.ai = extras.ai;
+  return withSessionAi(sessionId, () => streamCueCardInner(sessionId, classified, emit, extras, source, smart));
+}
+
+async function streamCueCardInner(
+  sessionId: string,
+  classified: { kind: string; text: string; intent?: InterviewerIntent },
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+  extras?: AnswerExtras,
+  source: "audio" | "screen" | "assist" = "audio",
+  smart = false,
+) {
+  const state = mem(sessionId);
+  const key = normalizeQuestion(classified.text);
+  const cooldown = source === "assist" ? 0 : source === "screen" ? 40_000 : 25_000;
+  if (
+    cooldown > 0 &&
+    sameQuestion(key, state.lastQuestion) &&
+    Date.now() - state.lastAskedAt < cooldown
+  ) {
+    return;
+  }
+  if (state.answering) {
+    if (source !== "assist") return;
+    await emit({
+      type: "session.error",
+      code: "busy",
+      message: "Still answering — try again in a moment.",
+    });
+    return;
+  }
+
+  state.lastQuestion = key;
+  state.lastAskedAt = Date.now();
+  state.answering = true;
+  const questionId = randomUUID();
+  const specialist = resolveSpecialist(classified.kind);
+  const stage = sessionStage(state, classified.text, specialist.id);
+  if (state.stage === "auto" && stage !== "auto" && stage !== state.inferredStage) {
+    state.inferredStage = stage;
+    await emit({ type: "session.stage", stage, inferred: true });
+  }
+  await emit({
+    type: "question.detected",
+    questionId,
+    kind: specialist.id,
+    agent: specialist.label,
+    text: classified.text,
+    source,
+  });
+  await emit({ type: "answer.started", questionId });
+  try {
+    let full = "";
+    if (!state.brief) await ensureBrief(sessionId, extras);
+
+    let ragContext = "";
+    let picked: Story | null = null;
+    if (specialistNeedsStory(specialist.id) && state.stories.length) {
+      picked = pickLockedStory(classified.text, state.stories, state.claims);
+      if (picked) ragContext = formatStory(picked);
+    } else if (specialistNeedsRag(specialist.id) && extras?.resumeContext) {
+      const retrieved = await withTimeout(
+        extras.resumeContext(classified.text, { k: 2 }),
+        180,
+      );
+      if (retrieved) {
+        ragContext = retrieved.context;
+        if (retrieved.job.title || retrieved.job.company) state.job = retrieved.job;
+      }
+    }
+
+    for await (const delta of streamAnswer({
+      question: classified.text,
+      specialist,
+      track: state.track,
+      stage,
+      intent: classified.intent,
+      brief: state.brief,
+      ragContext,
+      prior: state.turns,
+      screenContext: formatScreenContext(state.screen),
+      rollingSummary: state.rollingSummary,
+      claims: formatClaims(state.claims),
+      smart,
+    })) {
+      full += delta;
+      await emit({ type: "answer.delta", questionId, text: delta });
+    }
+    const spoken = toSpoken(full);
+    state.turns.push({
+      question: classified.text,
+      kind: classified.kind,
+      answer: spoken,
+    });
+    if (state.turns.length > 20) state.turns.shift();
+    state.claims = heuristicClaims({
+      answer: spoken,
+      story: picked,
+      prior: isFollowUpQuestion(classified.text) ? state.claims : emptyClaims(),
+    });
+    if (!isFollowUpQuestion(classified.text) && picked) {
+      state.claims.story = picked.name;
+    }
+    await emit({ type: "answer.completed", questionId, text: spoken });
+    // Hold the card while you talk it through. Screen-watch and leaked
+    // speech should not swap the answer unless a new interviewer question lands.
+    state.speakingUntil = Date.now() + (source === "screen" ? 12_000 : 45_000);
+    void refreshRollingSummary(sessionId, emit);
+    void refreshClaims(sessionId, classified.text, spoken, picked?.name);
+  } finally {
+    state.answering = false;
+  }
+}
+
+async function refreshClaims(
+  sessionId: string,
+  question: string,
+  answer: string,
+  storyName?: string,
+) {
+  const state = mem(sessionId);
+  try {
+    const refined = await refineClaims({
+      question,
+      answer,
+      prior: state.claims,
+      storyName,
+    });
+    if (refined) state.claims = refined;
+  } catch {
+    /* keep heuristic ledger */
+  }
+}
+
+async function refreshRollingSummary(
+  sessionId: string,
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+) {
+  const state = mem(sessionId);
+  if (state.turns.length < 3) return;
+  if (state.turns.length - state.lastSummaryTurns < 3) return;
+  try {
+    const text = await summarizeInterview({
+      turns: state.turns,
+      previous: state.rollingSummary,
+      job: state.job,
+      final: false,
+    });
+    if (!text) return;
+    state.rollingSummary = text;
+    state.lastSummaryTurns = state.turns.length;
+    await emit({ type: "summary.rolling", text });
+  } catch {
+    /* keep the last memory if this pass fails */
+  }
+}
+
+export async function buildSessionSummary(sessionId: string): Promise<string> {
+  const state = memory.get(sessionId);
+  if (!state) return "No questions were captured in this session.";
+  try {
+    return (
+      (await summarizeInterview({
+        turns: state.turns,
+        previous: state.rollingSummary,
+        job: state.job,
+        final: true,
+      })) ||
+      state.rollingSummary ||
+      "No questions were captured in this session."
+    );
+  } catch {
+    return state.rollingSummary || "Could not write a recap for this session.";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Live listening: Realtime STT -> turn assembly -> specialist routing
+// ---------------------------------------------------------------------------
+
+type AudioTranscriber = {
+  appendAudio: (frame: Buffer) => void;
+  commit: () => void;
+  close: () => void;
+  reconnect?: () => Promise<void>;
+};
+
+type ListeningSession = {
+  transcriber: AudioTranscriber;
+  assembler: TurnAssembler;
+  source: AudioSource;
+  pending: Buffer[];
+  retries: number;
+};
+
+const listening = new Map<string, ListeningSession>();
+const recovering = new Set<string>();
+const recoverTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const PENDING_MAX = 30;
+
+function enqueueFrame(session: ListeningSession, frame: Buffer) {
+  session.pending.push(frame);
+  if (session.pending.length > PENDING_MAX) session.pending.shift();
+}
+
+function flushPending(session: ListeningSession) {
+  for (const frame of session.pending) session.transcriber.appendAudio(frame);
+  session.pending = [];
+}
+
+function clearRecoverTimer(sessionId: string) {
+  const timer = recoverTimers.get(sessionId);
+  if (timer) clearTimeout(timer);
+  recoverTimers.delete(sessionId);
+}
+
+function scheduleSttRetry(
+  sessionId: string,
+  err: Error,
+  hooks: ConstructorParameters<typeof RealtimeTranscriber>[0],
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+) {
+  if (!listening.has(sessionId) || recoverTimers.has(sessionId)) return;
+  const session = listening.get(sessionId);
+  const delay = Math.min(8_000, 400 * 2 ** Math.min(session?.retries ?? 0, 4));
+  if (session) session.retries += 1;
+  recoverTimers.set(
+    sessionId,
+    setTimeout(() => {
+      recoverTimers.delete(sessionId);
+      void recoverStt(sessionId, err, hooks, emit);
+    }, delay),
+  );
+}
+
+async function recoverStt(
+  sessionId: string,
+  err: Error,
+  hooks: ConstructorParameters<typeof RealtimeTranscriber>[0],
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+) {
+  return withSessionAi(sessionId, () => recoverSttInner(sessionId, err, hooks, emit));
+}
+
+async function recoverSttInner(
+  sessionId: string,
+  err: Error,
+  hooks: ConstructorParameters<typeof RealtimeTranscriber>[0],
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+) {
+  const session = listening.get(sessionId);
+  if (!session || recovering.has(sessionId)) return;
+  recovering.add(sessionId);
+  try {
+    if (session.transcriber.reconnect) {
+      try {
+        await session.transcriber.reconnect();
+        session.retries = 0;
+        clearRecoverTimer(sessionId);
+        flushPending(session);
+        await emit({
+          type: "session.error",
+          code: "stt_fallback",
+          message: "Live transcription dropped — reconnected. Keep talking.",
+        });
+        return;
+      } catch (reconnectErr) {
+        console.error(
+          "[stt-reconnect]",
+          sessionId.slice(0, 8),
+          reconnectErr instanceof Error ? reconnectErr.message : reconnectErr,
+        );
+        try {
+          session.transcriber.close();
+        } catch {
+          /* already closed */
+        }
+      }
+    }
+    try {
+      const whisper = new WhisperTranscriber(hooks);
+      await whisper.connect();
+      session.transcriber = whisper;
+      session.retries = 0;
+      flushPending(session);
+      await emit({
+        type: "session.error",
+        code: "stt_fallback",
+        message: "Live socket dropped — using Whisper. Keep talking; answers will still appear.",
+      });
+      scheduleRealtimePromote(sessionId, hooks, emit);
+      return;
+    } catch (fallbackErr) {
+      console.error("[stt]", sessionId.slice(0, 8), err.message, fallbackErr);
+      await emit({
+        type: "session.error",
+        code: "stt_network",
+        message: "Live transcription dropped — retrying. Keep talking.",
+      });
+      scheduleSttRetry(sessionId, err, hooks, emit);
+    }
+  } finally {
+    recovering.delete(sessionId);
+  }
+}
+
+function scheduleRealtimePromote(
+  sessionId: string,
+  hooks: ConstructorParameters<typeof RealtimeTranscriber>[0],
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+) {
+  clearRecoverTimer(sessionId);
+  recoverTimers.set(
+    sessionId,
+    setTimeout(() => {
+      recoverTimers.delete(sessionId);
+      void promoteToRealtime(sessionId, hooks, emit);
+    }, 12_000),
+  );
+}
+
+async function promoteToRealtime(
+  sessionId: string,
+  hooks: ConstructorParameters<typeof RealtimeTranscriber>[0],
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+) {
+  const session = listening.get(sessionId);
+  if (!session) return;
+  if (session.transcriber.reconnect) return;
+  if (recovering.has(sessionId)) {
+    scheduleRealtimePromote(sessionId, hooks, emit);
+    return;
+  }
+  const next = new RealtimeTranscriber(hooks);
+  try {
+    await next.connect();
+    try {
+      session.transcriber.close();
+    } catch {
+      /* whisper */
+    }
+    session.transcriber = next;
+    session.retries = 0;
+    await emit({
+      type: "session.error",
+      code: "stt_fallback",
+      message: "Back on live transcription.",
+    });
+  } catch {
+    next.close();
+    scheduleRealtimePromote(sessionId, hooks, emit);
+  }
+}
+
+function holdingLiveAnswer(sessionId: string) {
+  const state = mem(sessionId);
+  return state.answering || Date.now() < state.speakingUntil;
+}
+
+type Decided =
+  | { isQuestion: true; kind: string; text: string; intent: InterviewerIntent }
+  | { isQuestion: false; hold?: "probe" | "hint"; text?: string };
+
+async function decideQuestion(
+  sessionId: string,
+  text: string,
+  force: boolean,
+  source: AudioSource,
+): Promise<Decided> {
+  const state = mem(sessionId);
+  const lastAnswer = state.turns[state.turns.length - 1]?.answer ?? "";
+  const holding = holdingLiveAnswer(sessionId);
+  const latest = extractLatestQuestion(text);
+  const intent = classifyIntent(latest, { hasTurns: state.turns.length > 0 });
+  if (intent === "check_in" || intent === "ignore") return { isQuestion: false };
+  if (!force && state.turns.length && (intent === "hint" || isShallowProbe(latest))) {
+    return { isQuestion: false, hold: intent === "hint" ? "hint" : "probe", text: latest };
+  }
+  if (intent === "feedback" || intent === "wrap") {
+    const stage = sessionStage(state, latest);
+    const specialist = routeQuestion(latest, state.track, undefined, stage);
+    return { isQuestion: true, kind: specialist.id, text: latest, intent };
+  }
+  // Mic always mixes both voices. After we already answered, also ignore
+  // first-person / echoed speech on system audio so the card does not jump.
+  if (source === "mic" || holding) {
+    if (isCandidateSpeech(latest)) return { isQuestion: false };
+    if (
+      lastAnswer &&
+      overlapsAnswer(latest, spokenBody(lastAnswer)) &&
+      !isLikelyNewQuestion(latest)
+    ) {
+      return { isQuestion: false };
+    }
+  }
+  if (holding && !force && !isLikelyNewQuestion(latest)) {
+    return { isQuestion: false };
+  }
+  if (source === "mic" && Date.now() < state.speakingUntil && !looksLikeInterviewer(latest)) {
+    return { isQuestion: false };
+  }
+
+  const stage = sessionStage(state, latest);
+
+  if (force) {
+    const specialist = routeQuestion(latest, state.track, undefined, stage);
+    return { isQuestion: true, kind: specialist.id, text: latest, intent };
+  }
+
+  const heuristic = pickQuestion(latest, state.track, stage);
+  if (heuristic.isQuestion) return { ...heuristic, intent };
+
+  const words = latest.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 6 || isNoiseTranscript(latest)) return { isQuestion: false };
+
+  try {
+    const guessed = await classifyTurn(latest);
+    if (guessed?.isQuestion) {
+      const specialist = routeQuestion(latest, state.track, guessed.kind, stage);
+      return { isQuestion: true, kind: specialist.id, text: latest, intent };
+    }
+  } catch {
+    /* fall through */
+  }
+  return { isQuestion: false };
+}
+
+const startingListen = new Set<string>();
+
+export async function startListening(
+  sessionId: string,
+  opts: {
+    source: AudioSource;
+    track?: InterviewTrackId;
+    stage?: InterviewStageId;
+    listenMode?: ListenMode;
+  },
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+  extras?: AnswerExtras,
+) {
+  if (listening.has(sessionId) || startingListen.has(sessionId)) return;
+  startingListen.add(sessionId);
+  try {
+  const state = mem(sessionId);
+  if (extras?.ai) state.ai = extras.ai;
+  const status = withSessionAi(sessionId, () => aiStatus());
+  if (!status.stt) {
+    await emit({
+      type: "session.error",
+      code: status.llm && status.provider === "claude" ? "need_stt" : "no_ai_key",
+      message:
+        status.llm && status.provider === "claude"
+          ? "Claude can write answers. Live listen needs Hosted AI or an OpenAI-compatible key."
+          : "Subscribe on the Plan page, or add your model key there.",
+    });
+    return;
+  }
+  configureSession(sessionId, {
+    track: opts.track,
+    stage: opts.stage,
+    listenMode: opts.listenMode,
+  });
+  const track = getTrack(state.track);
+  const source = opts.source;
+
+  const assembler = new TurnAssembler({
+    onPending: (text) => {
+      state.pendingTurn = text;
+      void emit({ type: "turn.pending", text });
+    },
+    onFinalTurn: (text, force) => {
+      withSessionAi(sessionId, () => {
+      // Mic fallback hears both sides mixed together; filter out our own
+      // voice. System-audio capture only ever hears the interviewer, so
+      // that check is skipped for the system source.
+      void decideQuestion(sessionId, text, Boolean(force), source).then((classified) => {
+        if (!classified.isQuestion) {
+          if (classified.hold) {
+            void emit({
+              type: "intent.held",
+              intent: classified.hold,
+              text: classified.text ?? text,
+            });
+            return;
+          }
+          if (isQuestionLike(text)) {
+            console.error("[turn-drop]", sessionId.slice(0, 8), text.slice(0, 140));
+          }
+          return;
+        }
+        if (state.answering) {
+          console.error("[turn-busy]", sessionId.slice(0, 8), classified.text.slice(0, 140));
+          return;
+        }
+        void streamCueCard(sessionId, classified, emit, extras, "audio");
+      });
+      });
+    },
+  });
+
+  const hooks = {
+    vocabulary: track.vocabulary,
+    onPartial: (text: string) => {
+      void emit({ type: "transcript.partial", text });
+    },
+    onSegment: (text: string) => {
+      state.recent.push(text);
+      if (state.recent.length > 16) state.recent.shift();
+      void emit({ type: "transcript.final", text, source });
+      assembler.handleSegment(text);
+    },
+    onSpeechStart: () => assembler.handleSpeechStart(),
+    onSpeechStop: () => assembler.handleSpeechStop(),
+    onError: (err: Error) => {
+      console.error("[stt]", sessionId.slice(0, 8), err.message);
+      void recoverStt(sessionId, err, hooks, emit);
+    },
+  };
+
+  let transcriber: AudioTranscriber | null = null;
+  let mode: "realtime" | "whisper" | "buffer" = "realtime";
+  const realtime = new RealtimeTranscriber(hooks);
+  try {
+    await realtime.connect();
+    transcriber = realtime;
+  } catch (err) {
+    realtime.close();
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[realtime-stt]", sessionId.slice(0, 8), message);
+    if (/401|invalid api key|incorrect api key/i.test(message)) {
+      await emit({
+        type: "session.error",
+        code: "no_ai_key",
+        message: "The model key was rejected. Check the Plan page and try again.",
+      });
+      await emit({ type: "listen.state", sessionId, active: false });
+      return;
+    }
+    try {
+      const whisper = new WhisperTranscriber(hooks);
+      await whisper.connect();
+      transcriber = whisper;
+      mode = "whisper";
+      await emit({
+        type: "session.error",
+        code: "stt_fallback",
+        message: "Live socket failed — using Whisper. Keep talking; answers will still appear.",
+      });
+    } catch (fallbackErr) {
+      const fallback =
+        fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      console.error("[stt-start]", sessionId.slice(0, 8), fallback);
+      transcriber = {
+        appendAudio: () => undefined,
+        commit: () => undefined,
+        close: () => undefined,
+      };
+      mode = "buffer";
+      await emit({
+        type: "session.error",
+        code: "stt_network",
+        message: "Could not start live transcription — retrying. Keep talking.",
+      });
+    }
+  }
+
+  listening.set(sessionId, {
+    transcriber: transcriber as AudioTranscriber,
+    assembler,
+    source,
+    pending: [],
+    retries: 0,
+  });
+  void ensureBrief(sessionId, extras);
+  await emit({ type: "listen.state", sessionId, active: true });
+  if (mode === "whisper") scheduleRealtimePromote(sessionId, hooks, emit);
+  if (mode === "buffer") scheduleSttRetry(sessionId, new Error("start"), hooks, emit);
+  } finally {
+    startingListen.delete(sessionId);
+  }
+}
+
+/** One ~100ms frame of PCM16/24kHz mono audio from the renderer. */
+export function pushAudioFrame(sessionId: string, frame: Buffer) {
+  const session = listening.get(sessionId);
+  if (!session) return;
+  enqueueFrame(session, frame);
+  if (recovering.has(sessionId)) return;
+  session.transcriber.appendAudio(frame);
+}
+
+/** Shortcut "commit" press: answer whatever has been heard so far, right now. */
+export function commitListening(sessionId: string) {
+  const session = listening.get(sessionId);
+  session?.transcriber.commit();
+  session?.assembler.commitNow();
+}
+
+export function stopListening(sessionId: string) {
+  const session = listening.get(sessionId);
+  if (!session) return false;
+  recovering.delete(sessionId);
+  clearRecoverTimer(sessionId);
+  session.transcriber.close();
+  session.assembler.reset();
+  listening.delete(sessionId);
+  return true;
+}
+
+export function isListening(sessionId: string) {
+  return listening.has(sessionId);
+}
+
+// ---------------------------------------------------------------------------
+// Screen vision
+// ---------------------------------------------------------------------------
+
+export async function handleScreenFrame(
+  sessionId: string,
+  input: {
+    imageBase64?: string;
+    mimeType?: string;
+    imageRef?: string;
+    diffRatio?: number;
+  },
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+  extras?: AnswerExtras,
+) {
+  const state = mem(sessionId);
+  const image = input.imageBase64?.trim() ?? "";
+  if (image.length < 800) return;
+  if (state.visionBusy) return;
+  const bigChange = (input.diffRatio ?? 0) >= 0.25;
+  if (!bigChange) return;
+  if (!aiStatus().llm) return;
+
+  state.visionBusy = true;
+  try {
+    const analysis = await analyzeScreen(image, input.mimeType, { detail: "low" });
+    state.lastVisionAt = Date.now();
+    if (!analysis || analysis.kind === "idle" || analysis.confidence < 0.45) {
+      return;
+    }
+    if (!analysis.title && !analysis.problem && analysis.ocrText.length < 20) {
+      return;
+    }
+
+    state.screen = { ...analysis, at: Date.now() };
+    const holding = holdingLiveAnswer(sessionId);
+    if (!holding) {
+      await emit({
+        type: "screen.insight",
+        kind: analysis.kind,
+        title: analysis.title,
+        text: (analysis.problem || analysis.ocrText).slice(0, 280),
+        ocrText: analysis.ocrText,
+      });
+    }
+
+    if (
+      !holding &&
+      analysis.needsHelp &&
+      analysis.confidence >= 0.65 &&
+      (analysis.kind === "code" || analysis.kind === "docs")
+    ) {
+      const question = analysis.title
+        ? `On screen: ${analysis.title}`
+        : `On screen: ${(analysis.problem || analysis.ocrText).slice(0, 180)}`;
+      await streamCueCard(
+        sessionId,
+        {
+          kind: analysis.kind === "code" ? "coding" : "other",
+          text: question,
+        },
+        emit,
+        extras,
+        "screen",
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/401|invalid api key|incorrect api key/i.test(message)) {
+      await emit({
+        type: "session.error",
+        code: "no_ai_key",
+        message: "Subscribe on the Plan page, or add your model key there.",
+      });
+    }
+  } finally {
+    state.visionBusy = false;
+  }
+}
+
+function latestFallback(sessionId: string) {
+  const state = mem(sessionId);
+  return (
+    state.pendingTurn ||
+    state.recent.slice(-3).join(" ") ||
+    state.turns[state.turns.length - 1]?.question ||
+    ""
+  );
+}
+
+export async function handleAssistRequest(
+  sessionId: string,
+  input: {
+    action: AssistAction;
+    text?: string;
+    imageBase64?: string;
+    mimeType?: string;
+    smart?: boolean;
+  },
+  emit: (event: Record<string, unknown>) => void | Promise<void>,
+  extras?: AnswerExtras,
+) {
+  const state = mem(sessionId);
+  if (extras?.ai) state.ai = extras.ai;
+  if (!withSessionAi(sessionId, () => aiStatus().llm)) {
+    await emit({
+      type: "session.error",
+      code: "no_ai_key",
+      message: "Subscribe on the Plan page, or add your model key there.",
+    });
+    return;
+  }
+
+  if (input.action === "screen" && input.imageBase64) {
+    try {
+      const analysis = await analyzeScreen(input.imageBase64, input.mimeType, {
+        detail: input.smart ? "high" : "low",
+      });
+      if (analysis && analysis.kind !== "idle") {
+        state.screen = { ...analysis, at: Date.now() };
+        await emit({
+          type: "screen.insight",
+          kind: analysis.kind,
+          title: analysis.title,
+          text: (analysis.problem || analysis.ocrText).slice(0, 280),
+          ocrText: analysis.ocrText,
+        });
+        const question = analysis.title
+          ? `On screen: ${analysis.title}. ${analysis.problem || analysis.ocrText}`.slice(0, 400)
+          : `Solve what is on my screen: ${(analysis.problem || analysis.ocrText).slice(0, 300)}`;
+        await streamCueCard(
+          sessionId,
+          {
+            kind: analysis.kind === "code" ? "coding" : "technical",
+            text: question,
+          },
+          emit,
+          extras,
+          "assist",
+          Boolean(input.smart),
+        );
+        return;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/401|invalid api key|incorrect api key/i.test(message)) {
+        await emit({
+          type: "session.error",
+          code: "no_ai_key",
+          message: "The model key was rejected. Check the Plan page and try again.",
+        });
+        return;
+      }
+    }
+  }
+
+  const built = assistPrompt(
+    input.action,
+    input.text ? sanitizeText(input.text, { max: LIMITS.question }) : input.text,
+    latestFallback(sessionId),
+  );
+  if ("error" in built) {
+    await emit({
+      type: "session.error",
+      code: "no_prompt",
+      message: built.error,
+    });
+    return;
+  }
+
+  const specialist =
+    built.action === "assist" || built.action === "ask"
+      ? routeQuestion(built.text, state.track, undefined, sessionStage(state, built.text))
+      : resolveSpecialist(built.kind);
+
+  await streamCueCard(
+    sessionId,
+    { kind: specialist.id, text: built.text },
+    emit,
+    extras,
+    "assist",
+    Boolean(input.smart),
+  );
+}
+
+/** Clears live memory but keeps the session and the audio connection. */
+export function resetLiveContext(sessionId: string) {
+  const state = mem(sessionId);
+  state.recent = [];
+  state.cleanRecent = [];
+  state.lastQuestion = "";
+  state.lastAskedAt = 0;
+  state.turns = [];
+  state.screen = undefined;
+  state.rollingSummary = "";
+  state.lastSummaryTurns = 0;
+  state.brief = "";
+  state.briefPromise = undefined;
+  state.stories = [];
+  state.claims = emptyClaims();
+  state.inferredStage = "auto";
+  state.pendingTurn = "";
+  listening.get(sessionId)?.assembler.reset();
+}
+
+export { aiStatus, runWithAi, type AiCreds };
+export { chunkResume, embedTexts, rankChunks } from "./embeddings.js";
+export { formatCandidateBrief, collectAnswer } from "./engine.js";
+export {
+  extractStories,
+  formatStory,
+  formatStoryCatalog,
+  heuristicStories,
+  normalizeDraft,
+  pickStory,
+  specialistNeedsStory,
+  type StoryDraft,
+} from "./stories.js";
+export {
+  heuristicClaims,
+  isFollowUpQuestion,
+  pickLockedStory,
+  refineClaims,
+} from "./claims.js";
+export {
+  classifyIntent,
+  inferStage,
+  isShallowProbe,
+} from "./intent.js";
+export { buildPracticePlan } from "./practice.js";
+export { routeQuestion } from "./agents/router.js";
+

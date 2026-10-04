@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; connect-src 'self' http: https: ws: wss:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:"
+    />
+    <title>Bana Copilot</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="hud" id="hud">
+      <header id="topbar">
+        <span class="drag" aria-hidden="true"></span>
+        <button type="button" class="listen-pill" id="listen-pill" title="Start or stop listening">
+          <span class="dot" id="status-dot"></span>
+          <span class="listen-label" id="listen-label">Listen</span>
+          <span class="level"><span id="meter-fill"></span></span>
+        </button>
+        <select id="stage-select" title="Interview stage"></select>
+        <button type="button" class="icon-btn" id="smart-btn" aria-pressed="false" title="Smart Mode">
+          Smart
+        </button>
+        <button type="button" class="icon-btn" id="share-btn" aria-pressed="false" title="Hidden from screen share">
+          Hidden
+        </button>
+        <button type="button" class="timer-btn" id="session-btn" title="Start or end session">
+          Start
+        </button>
+        <button type="button" class="icon-btn" id="home-btn" title="Open dashboard">
+          Home
+        </button>
+        <button type="button" class="icon-btn" id="gear-btn" title="Quick settings">
+          ···
+        </button>
+        <button type="button" class="icon-btn" id="collapse-btn" title="Collapse to bar — ⌘⇧\">
+          ▾
+        </button>
+        <button type="button" class="icon-btn" id="hide-btn" title="Hide — ⌘\">
+          ×
+        </button>
+      </header>
+      <p class="ghost-chip" id="ghost-chip" hidden></p>
+
+      <div class="card" id="card">
+        <div class="hist" id="hist-bar">
+          <button id="prev-btn" type="button" class="hist-btn" disabled>Back</button>
+          <span id="hist-label">Live</span>
+          <span class="kind" id="kind-label" hidden></span>
+          <button id="next-btn" type="button" class="hist-btn" disabled>Next</button>
+        </div>
+
+        <p class="question idle" id="question">Waiting for a question…</p>
+        <p class="pending" id="pending" hidden>They're still talking…</p>
+
+        <section class="answer-block">
+          <div id="answer" class="placeholder">
+            Press Listen. It hears the other person, waits until they finish, then answers.
+          </div>
+        </section>
+
+        <div class="shot-chip" id="shot-chip" hidden>
+          <span>Sent with screenshot</span>
+          <img id="shot-preview" alt="" />
+        </div>
+
+        <div class="actions" id="actions">
+          <button type="button" data-action="say_next">What should I say</button>
+          <button type="button" data-action="follow_up">Follow-ups</button>
+          <button type="button" data-action="fact_check">Fact check</button>
+          <button type="button" data-action="recap">Recap</button>
+          <button type="button" data-action="screen">Solve screen</button>
+        </div>
+
+        <form class="ask-bar" id="ask-form">
+          <input id="ask-input" type="text" placeholder="Ask AI — ⌘Enter" autocomplete="off" />
+          <button type="submit">Ask</button>
+        </form>
+      </div>
+
+      <div class="popover" id="settings-pop" hidden>
+        <p class="label">Listening</p>
+        <div class="choice-row">
+          <button type="button" class="chip active" id="source-system">Their audio</button>
+          <button type="button" class="chip" id="source-mic">My mic</button>
+        </div>
+        <div class="choice-row">
+          <button type="button" class="chip active" id="mode-auto">Auto</button>
+          <button type="button" class="chip" id="mode-shortcut">Shortcut ⌘⇧L</button>
+        </div>
+        <p class="fine" id="mic-status">Off — captures their voice, not yours.</p>
+        <button type="button" class="secondary" id="mic-prefs-btn">Mic settings</button>
+
+        <p class="label">Look</p>
+        <label class="slider-row">
+          <span>Opacity</span>
+          <input id="opacity-slider" type="range" min="28" max="92" value="55" />
+        </label>
+        <label class="check-row">
+          <input id="solid-hover" type="checkbox" checked />
+          Solid on hover
+        </label>
+        <label class="check-row">
+          <input id="share-visible" type="checkbox" />
+          Show HUD on screen share
+        </label>
+        <p class="fine">Off by default — Zoom and Meet cannot see the overlay.</p>
+
+        <p class="label">Display</p>
+        <p class="fine" id="display-status">HUD on display 1</p>
+        <button type="button" class="secondary" id="display-btn">Move to other display</button>
+
+        <p class="label">Screen watch</p>
+        <p class="fine" id="screen-status">Off — stills only when the picture changes.</p>
+        <button type="button" class="secondary" id="screen-btn">Start screen watch</button>
+        <button type="button" class="secondary" id="screen-settings-btn">Screen settings</button>
+        <img id="screen-preview" alt="" hidden />
+
+        <p class="fine" id="ws-status">Connecting…</p>
+        <p class="fine" id="live-text">Ready.</p>
+        <p class="fine" id="shortcut-hint"></p>
+        <button type="button" class="secondary" id="shortcuts-btn">Edit shortcuts…</button>
+        <p class="fine" id="perm-hint"></p>
+        <p class="fine" id="coach">Share a window, not the whole display.</p>
+        <p class="fine" id="session-status">Not started.</p>
+      </div>
+    </div>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

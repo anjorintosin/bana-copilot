@@ -1,0 +1,26 @@
+{
+  "name": "meeting-copilot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Bana Copilot — Electron interview overlay with a Node realtime backend",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @meeting-copilot/api",
+    "dev:desktop": "npm run dev -w @meeting-copilot/desktop",
+    "dev": "npm run dev:api & npm run dev:desktop",
+    "build": "npm run build -ws --if-present",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "deploy:ec2": "bash infra/deploy-ec2.sh",
+    "deploy:lightsail": "bash infra/deploy-lightsail.sh",
+    "deploy:ec2:sync": "bash infra/sync-ec2.sh",
+    "pack:desktop": "npm run pack -w @meeting-copilot/desktop",
+    "replay": "npm run replay -w @meeting-copilot/orchestrator"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
