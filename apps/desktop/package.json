@@ -40,6 +40,7 @@
         "zip"
       ],
       "identity": null,
+      "artifactName": "Bana.Copilot-${version}-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Bana Copilot uses the microphone to transcribe the conversation in real time.",
@@ -51,7 +52,21 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "Bana.Copilot-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Bana Copilot"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office",
+      "maintainer": "Bana Copilot",
+      "artifactName": "Bana.Copilot-${version}-${arch}.${ext}"
     }
   }
 }
