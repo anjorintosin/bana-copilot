@@ -32,7 +32,8 @@
     "directories": {
       "output": "release"
     },
-    "publish": null,
+    "publish": [],
+    "generateUpdatesFilesForAllChannels": false,
     "mac": {
       "target": [
         "dmg",

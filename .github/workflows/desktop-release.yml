@@ -39,16 +39,29 @@ jobs:
       - name: Pack desktop
         working-directory: apps/desktop
         shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           node scripts/build.mjs
+          set +e
           npx --yes electron-builder@25.1.8 --publish never --config.electronVersion=39.2.7 ${{ matrix.builder }}
+          status=$?
+          set -e
+          shopt -s nullglob
+          files=(release/Bana.Copilot*.dmg release/Bana.Copilot*.zip release/Bana.Copilot*.exe release/Bana.Copilot*.AppImage release/Bana.Copilot*.deb)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "electron-builder exited $status with no installers"
+            exit 1
+          fi
+          echo "Installers ready (electron-builder exit $status):"
+          ls -lah "${files[@]}"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}
           if-no-files-found: error
           path: |
-            apps/desktop/release/*.dmg
-            apps/desktop/release/*.zip
-            apps/desktop/release/*.exe
-            apps/desktop/release/*.AppImage
-            apps/desktop/release/*.deb
+            apps/desktop/release/Bana.Copilot*.dmg
+            apps/desktop/release/Bana.Copilot*.zip
+            apps/desktop/release/Bana.Copilot*.exe
+            apps/desktop/release/Bana.Copilot*.AppImage
+            apps/desktop/release/Bana.Copilot*.deb
