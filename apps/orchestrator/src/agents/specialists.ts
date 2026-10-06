@@ -58,10 +58,9 @@ export const SPECIALISTS: Record<SpecialistId, Specialist> = {
       /\bhave you ever\b/i,
       /\b(conflict|disagree|disagreement|mistake|failure|failed|proud|challenge|difficult|stakeholder|deadline|pressure|feedback|leadership|ownership|influence)\b/i,
     ],
-    style: `Behavioral question. Answer as a short story using STAR, without saying "situation/task/action/result":
-what was going on (1 sentence) → what I specifically did (2–3 sentences, "I", not "we") → the result, with a number if the resume has one → one-line lesson.
-Use only real facts from my resume. If none fit, tell a plausible, modest story without naming employers.
-SAY is the story. PUSH is the number or what I would do differently. TRAP is starting a second story.`,
+    style: `Behavioral question. Tell one short story in STAR order without the labels: the situation in one sentence, what I did in 2–3 sentences ("I", not "we"), the result with a number if the brief has one, and a one-line lesson.
+Use only real facts from the resume, story bank, or claims already made.
+If none fit, the bold first line says "**General example (no matching story on file); swap in your own details.**" Then tell a complete, believable story in the same shape: no company names, no made-up numbers (describe the outcome in words), so it is usable as-is and honest.`,
     maxTokens: 380,
     temperature: 0.55,
   },
@@ -69,18 +68,23 @@ SAY is the story. PUSH is the number or what I would do differently. TRAP is sta
     id: "coding",
     label: "Coding",
     signals: [
-      /\b(write|implement|code) (a|an|the)? ?(function|method|class|algorithm|program|query)\b/i,
+      /\b(write|implement|code up|give me|show me)\b[^.?!]{0,40}\b(function|method|class|algorithm|program|query|script|code|solution)\b/i,
       /\bgiven (an|a) (array|string|list|tree|graph|matrix|integer)\b/i,
       /\b(leetcode|hackerrank|coderpad|two sum|linked list|binary (tree|search)|hash ?map|dynamic programming|recursion|bfs|dfs|sliding window|two pointers?)\b/i,
       /\b(time|space) complexity\b|\bbig o\b/i,
+      /\b(offline|dynamic connectivity|union[- ]find|dsu|segment tree|centroid|heavy[- ]light|fenwick|bit tree)\b/i,
+      /\b(weighted tree|path weight|count(ing)? (the )?pairs|unordered pairs)\b/i,
       /\breverse (a|the)\b|\bfind the (longest|shortest|maximum|minimum|kth)\b/i,
     ],
-    style: `Coding question.
-Say the approach in 2–3 spoken sentences (idea, then time and space complexity).
-Then one complete, indented, runnable fenced code block (5–30 lines) in the language on the screen or that they asked for — editor tab, starter code, or language dropdown. If that is Java, C++, JavaScript, SQL, Go, or anything else, use that language. Never switch to Python (or any other language) unless that is what is on screen.
-PUSH is the edge case or follow-up, not more code.
-Never write code as prose. Never solve a famous similar problem (not Two Sum if they asked something else).`,
-    maxTokens: 700,
+    style: `Coding / algorithm problem.
+Shape: "Use **<algorithm>** to <goal> in O(...) time" with the reason for the bound in a few words. Then up to 6 steps, one line each, that someone could implement from. Then one line on why it is correct (the invariant, or why each item is counted exactly once). Then the example check. Then the complete, runnable code. Leave the code out only when they ask just for the approach, complexity, or an explanation.
+- Example check: trace it only if there are about 10 candidates or fewer (pairs, subarrays, strings to check), and give the result you traced. Larger examples (hundreds of strings, big sums) are not reliable by hand: write "Example: too large to trace by hand; run the code on it." and state no count of your own, even when the stated output looks wrong (then add "the stated output looks inconsistent").
+- With code, keep it to at most 4 steps and skip details the code already shows; the code carries the specifics.
+- Read the constraints first and pick a structure that meets them; n = 1e5 rules out O(n²).
+- Steps name what is easy to forget: the starting or sentinel element, base cases, what is added versus subtracted, and 64-bit totals when counts can reach n².
+- Code reads input exactly as specified, handles empty and single-element input, and avoids the classic slips: off-by-one bounds, counting an element with itself, counting a pair twice, revisiting removed or visited nodes.
+- A narrow follow-up (complexity, an edge case, "why does this work") gets only that answer, not the whole solution again.`,
+    maxTokens: 1400,
     temperature: 0.2,
     writesCode: true,
   },
@@ -92,21 +96,16 @@ Never write code as prose. Never solve a famous similar problem (not Two Sum if 
       /\bhow would you (design|build|architect|scale)\b/i,
       /\b(scalab|architecture|distributed|load balanc|shard|replicat|cache|caching|queue|kafka|throughput|latency|cap theorem|consistency|availability|rate limit|cdn|microservice|pagination|cursor pagination|keyset)\w*/i,
     ],
-    style: `System design / architecture question. Speak it like the first two minutes at a whiteboard — judgment, not a textbook.
-
-Do not open with a definition (CAP, "a microservice is…", "sharding means…"). Assume they know the term.
-
-Always hit, out loud:
-1. The one requirement that actually drives the design, plus a concrete scale I am assuming (QPS, data size, read/write mix).
-2. The data path: who writes, what is stored, what is read, and the one bottleneck I expect first.
-3. The choice I would make (DB, cache, queue, consistency) and the reason in this system — not "you could use Redis".
-4. The failure I worry about (hot shard, stale cache, split brain, replay) and how I would detect or contain it.
-5. What I would build first vs what I would add at 10x.
-
-If they asked a concept (CAP, partitioning, consistency, pagination), answer by designing a small system around it: "In a payments ledger I'd pick X because…"
-Use one resume system if it fits. No spec dumps, no component laundry lists.
-SAY is the first 15 seconds: scale, path, the one choice. PUSH is trade-offs, failure, and 10x — including cursor vs OFFSET if they asked about paging. TRAP is the definition.`,
-    maxTokens: 560,
+    style: `System design question. Answer like the first two minutes at a whiteboard: judgment, not a textbook. Do not open with a definition.
+First line: the design choice in one sentence. Then 3–6 bullets:
+1. The requirement that drives the design and the assumed scale (QPS, payload, read/write mix), stated as "assuming…".
+2. The data path: write API, what is stored (table, partition key), what is read, the first bottleneck.
+3. The choice I would ship (store, cache key + TTL, queue, index) and why for this system.
+4. The failure that would hit first (hot shard, stale cache, thundering herd) and the metric that would fire.
+5. What changes at 10x.
+For a concept question (CAP, consistency, caching), answer by designing a small system around it with named keys, TTLs, and indexes.
+A narrow follow-up ("what about 10x?", "why Redis?", "how do you handle that failure?") gets 1–3 sentences, not a new list.`,
+    maxTokens: 620,
     temperature: 0.45,
   },
   technical: {
@@ -117,20 +116,17 @@ SAY is the first 15 seconds: scale, path, the one choice. PUSH is trade-offs, fa
       /\b(explain|difference between|how does|how do|what happens when|compare)\b/i,
       /\b(javascript|typescript|python|java|react|node|sql|http|tcp|dns|rest|graphql|docker|kubernetes|aws|oauth|jwt|thread|process|memory|index|transaction|closure|promise|garbage collect|pagination|cursor|offset|keyset)\w*/i,
     ],
-    style: `Technical knowledge question.
-
-SAY is two sentences: the working answer and the default I would ship. Do not restate it. Do not list every option yet.
-
-PUSH is required on compare / architecture / pagination questions. That is the only place for trade-offs.
-
-Pagination / cursors / OFFSET: SAY = I would page with a keyset cursor on the sort key plus a unique id, because OFFSET gets slower and can skip or repeat rows when writes land between pages. PUSH = OFFSET is fine for small admin tables that need jump-to-page; cursors cannot do page numbers; the sort must be unique or rows vanish; keyset vs seek; what breaks if someone sorts on a non-unique created_at.
-
-CAP / consistency / REST vs gRPC / indexes: SAY = the default I would ship in one system. PUSH = the other option, the failure, and when I would switch.
-
-If it is a narrow language/API fact, keep SAY to the fact plus one example. PUSH is one caveat.
-
-Never end on "it depends" without naming the default I would ship. Never put the cursor-vs-offset lecture in SAY.`,
-    maxTokens: 400,
+    style: `Technical question. The first line answers exactly what was asked. Then 1–3 plain sentences: why, or how it works, plus the one detail worth saying aloud. A definition, a yes/no, a single fact, "what does X evaluate to", or X vs Y between two things stays in sentences.
+Use 2–5 numbered points only when the question has several separate parts: a how-to with steps, a comparison of three or more options, or a tooling or design choice where the default, when to pick something else, and a pitfall each matter. Write them as plain sentences, never prefixed with labels like "Mechanism:", "Default:", "Alternative:", "Footgun:", or "Metric:".
+For math, probability, or puzzles: set up the equations, solve them, substitute the result back to check, then give the answer first and the working in a sentence or two (steps only if there are several).
+Use this level of specificity on whatever was asked (examples, not text to paste):
+- Pagination: keyset on (created_at DESC, id DESC) with a matching index and an opaque signed cursor; OFFSET only for admin pages.
+- Cache: Redis cache-aside, key user:ID:profile, 60s TTL, singleflight lock on miss; delete the key on write.
+- Transactions: the isolation level and the anomaly it blocks, plus the retry on serialization failure.
+- HTTP: 429 + Retry-After; Idempotency-Key on POST and what happens on a replay.
+If they ask you to write a query or code, put it in one fenced block after the first line, not inline.
+If they named a language, stay in it. Never close on "it depends" without naming what I would ship today.`,
+    maxTokens: 640,
     temperature: 0.35,
   },
   product: {
@@ -141,10 +137,8 @@ Never end on "it depends" without naming the default I would ship. Never put the
       /\bhow would you (prioritize|launch|improve|monetize|grow)\b/i,
       /\b(roadmap|prioriti[sz]|user persona|pain points?|go[- ]to[- ]market|mvp|product strategy|north star)\b/i,
     ],
-    style: `Product sense / strategy question. Structure out loud, briefly:
-goal and who the user is → 2–3 user pain points → the one solution I'd prioritize and why → how I'd measure success (one primary metric, one guardrail).
-Signal structure with spoken transitions ("First…", "The biggest pain is…"), not bullets.
-90–140 words.`,
+    style: `Product sense / strategy question.
+First line: the one solution I would prioritize and for whom. Then bullets: the goal and user, 2–3 pain points, why this solution beats the alternatives, and how I would measure it (one primary metric, one guardrail).`,
     maxTokens: 380,
     temperature: 0.5,
   },
@@ -157,9 +151,9 @@ Signal structure with spoken transitions ("First…", "The biggest pain is…"),
       /\bhow would you measure\b/i,
     ],
     style: `Metrics / analytics / experimentation question.
-For a metric drop: clarify definition and timeframe → split internal vs. external causes → segment (platform, region, cohort, funnel step) → name the first query I'd run.
-For "how would you measure": one primary metric, 2 supporting, 1 guardrail, and why.
-For stats/SQL: the direct answer first, then the reasoning; put SQL in a fenced code block.
+For a metric drop: name the definition, window, and the first cut (internal vs external), then segments (platform, region, cohort, funnel) and the first query and metric (p99, error rate, saturation, conversion).
+For "how would you measure": one primary, two supporting, one guardrail — event name or SQL grain, not "engagement".
+For stats/SQL: the direct answer first; SQL in a fence. Name sample size, significance, and the peeking footgun if it is an A/B.
 80–130 words plus any code.`,
     maxTokens: 450,
     temperature: 0.35,
@@ -226,8 +220,10 @@ For a critique: what works, what doesn't, and one concrete change, grounded in a
     id: "general",
     label: "General",
     signals: [],
-    style: `General interview question. Answer directly in the first sentence, support it with one concrete example from my background, and finish with a sentence tying it back to this role.
-50–90 words.`,
+    style: `General chat or interview question.
+If they said hello / hi / hey: one casual line, like "hey, what's up? I'm here if you need anything."
+Otherwise answer directly in the first sentence, support it with one concrete example from my background if it fits, and finish tying it to this role when it is an interview question.
+Greetings: under 20 words. Interview: 50–90 words.`,
     maxTokens: 260,
     temperature: 0.5,
   },

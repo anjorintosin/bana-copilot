@@ -10,71 +10,119 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="hud" id="hud">
+    <div class="hud collapsed" id="hud">
       <header id="topbar">
-        <span class="drag" aria-hidden="true"></span>
-        <button type="button" class="listen-pill" id="listen-pill" title="Start or stop listening">
-          <span class="dot" id="status-dot"></span>
-          <span class="listen-label" id="listen-label">Listen</span>
-          <span class="level"><span id="meter-fill"></span></span>
-        </button>
-        <select id="stage-select" title="Interview stage"></select>
-        <button type="button" class="icon-btn" id="smart-btn" aria-pressed="false" title="Smart Mode">
-          Smart
-        </button>
-        <button type="button" class="timer-btn" id="session-btn" title="End session">
-          End
-        </button>
-        <button type="button" class="icon-btn" id="home-btn" title="Open dashboard">
-          Home
-        </button>
-        <button type="button" class="icon-btn share-btn" id="share-btn" aria-pressed="false" title="Screen share — HUD hidden from Zoom/Meet">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="3" y="5" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
-            <path d="M12 8v6M9.5 10.5 12 8l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M8 20h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        <button type="button" class="mark-btn" id="back-btn" data-tip="Back" aria-label="Back">
+          <span class="mark-letter" aria-hidden="true">B</span>
+          <svg class="mark-back" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <button type="button" class="icon-btn" id="collapse-btn" title="Collapse to bar — ⌘⇧\">
-          ▾
-        </button>
-        <button type="button" class="icon-btn" id="hide-btn" title="Hide — ⌘\">
-          ×
-        </button>
+        <form class="ask-bar" id="ask-form">
+          <input id="ask-input" type="text" placeholder="Ask anything…" autocomplete="off" />
+          <button type="submit" class="send-btn" data-tip="Assist" aria-label="Assist">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12h12M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </form>
+        <span class="header-spacer" aria-hidden="true"></span>
+        <div class="icon-row">
+          <button type="button" class="listen-pill icon-btn" id="listen-pill" data-tip="Start session" aria-label="Start session">
+            <span class="listen-clock" id="listen-clock">00:00</span>
+            <span class="dot" id="status-dot"></span>
+            <span class="listen-label" id="listen-label">Start session</span>
+            <span class="level"><span id="meter-fill"></span></span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12h2l2-5 3 10 3-7 2 2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn" id="modes-btn" data-tip="Mode" aria-label="Mode">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="4" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="2" />
+              <rect x="14" y="4" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="2" />
+              <rect x="4" y="14" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="2" />
+              <rect x="14" y="14" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn share-btn" id="share-btn" aria-pressed="false" data-tip="Visibility" aria-label="Visibility">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2" />
+              <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn" id="screen-btn" data-tip="Screen" aria-label="Screen">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M8 19h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn" id="home-btn" data-tip="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn history-btn" id="history-btn" data-tip="History" aria-label="History">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M12 8v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            <span class="chev">▾</span>
+          </button>
+        </div>
       </header>
+
       <p class="ghost-chip" id="ghost-chip" hidden></p>
 
-      <div class="launch" id="launch">
-        <button type="button" class="launch-start" id="launch-start">Start</button>
-        <p class="launch-hint">Starts the interview. The HUD stays movable.</p>
+      <p class="hud-tip" id="hud-tip" hidden></p>
+
+      <div class="popover modes-pop" id="modes-pop" hidden>
+        <div class="modes-grid" id="modes-grid"></div>
+        <button type="button" class="secondary" id="modes-manage">Manage</button>
       </div>
 
-      <div class="card" id="card">
-        <div class="hist" id="hist-bar">
-          <button id="prev-btn" type="button" class="hist-btn" disabled>Back</button>
-          <span id="hist-label">Live</span>
-          <span class="kind" id="kind-label" hidden></span>
-          <button id="next-btn" type="button" class="hist-btn" disabled>Next</button>
-        </div>
-
-        <p class="question idle" id="question">Waiting for a question…</p>
-        <p class="pending" id="pending" hidden>They're still talking…</p>
-
-        <section class="answer-block">
-          <div id="answer" class="placeholder">
-            Press Listen. It hears the other person, waits until they finish, then answers.
-          </div>
-          <div class="answer-loader" id="answer-loader" hidden>
-            <span class="spinner" aria-hidden="true"></span>
-            <p id="answer-loader-text">Working on it…</p>
-          </div>
+      <div class="popover history-pop" id="history-pop" hidden>
+        <section class="hist-section">
+          <p class="label">Sessions</p>
+          <div class="hist-list" id="history-sessions"></div>
         </section>
+      </div>
 
-        <div class="shot-chip" id="shot-chip" hidden>
-          <span>Sent with screenshot</span>
-          <img id="shot-preview" alt="" />
+      <div class="thread" id="thread"></div>
+      <p class="pending" id="pending" hidden>They're still talking…</p>
+      <div class="answer-loader" id="answer-loader" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <p id="answer-loader-text">Working on it…</p>
+      </div>
+      <div class="shot-chip" id="shot-chip" hidden>
+        <span>Sent with screenshot</span>
+        <img id="shot-preview" alt="" />
+      </div>
+      <footer class="composer" id="composer"></footer>
+
+      <div class="live-anchor" hidden>
+        <div class="card" id="card">
+          <div class="hist" id="hist-bar">
+            <button id="prev-btn" type="button" class="hist-btn" disabled>Back</button>
+            <span id="hist-label">Live</span>
+            <span class="kind" id="kind-label" hidden></span>
+            <button id="next-btn" type="button" class="hist-btn" disabled>Next</button>
+          </div>
+          <p class="question idle" id="question">Ask anything, or press Assist.</p>
+          <div id="answer" class="placeholder">Answers show here when you press Enter or Assist.</div>
         </div>
+      </div>
 
+      <div class="compat" hidden>
+        <div class="launch" id="launch">
+          <button type="button" class="launch-start" id="launch-start">Start</button>
+        </div>
+        <select id="stage-select" title="Interview stage"></select>
+        <button type="button" class="icon-btn" id="smart-btn" aria-pressed="false">Smart</button>
+        <button type="button" class="timer-btn" id="session-btn">End</button>
+        <button type="button" class="icon-btn" id="collapse-btn">▾</button>
+        <button type="button" class="icon-btn" id="hide-btn">×</button>
         <div class="actions" id="actions">
           <button type="button" data-action="say_next">What should I say</button>
           <button type="button" data-action="follow_up">Follow-ups</button>
@@ -82,58 +130,44 @@
           <button type="button" data-action="recap">Recap</button>
           <button type="button" data-action="screen">Solve screen</button>
         </div>
-
-        <form class="ask-bar" id="ask-form">
-          <input id="ask-input" type="text" placeholder="Ask AI — ⌘Enter" autocomplete="off" />
-          <button type="submit">Ask</button>
-        </form>
-      </div>
-
-      <div class="popover" id="settings-pop" hidden>
-        <p class="label">Listening</p>
-        <div class="choice-row">
-          <button type="button" class="chip active" id="source-system">Their audio</button>
-          <button type="button" class="chip" id="source-mic">My mic</button>
+        <div class="popover" id="settings-pop" hidden>
+          <p class="label">Listening</p>
+          <div class="choice-row">
+            <button type="button" class="chip active" id="source-system">Their audio</button>
+            <button type="button" class="chip" id="source-mic">My mic</button>
+          </div>
+          <div class="choice-row">
+            <button type="button" class="chip active" id="mode-auto">Auto</button>
+            <button type="button" class="chip" id="mode-shortcut">Shortcut</button>
+          </div>
+          <p class="fine" id="mic-status">Off — captures their voice, not yours.</p>
+          <button type="button" class="secondary" id="mic-prefs-btn">Mic settings</button>
+          <p class="label">Look</p>
+          <label class="slider-row">
+            <span>Opacity</span>
+            <input id="opacity-slider" type="range" min="28" max="92" value="55" />
+          </label>
+          <label class="check-row">
+            <input id="solid-hover" type="checkbox" checked />
+            Solid on hover
+          </label>
+          <label class="check-row">
+            <input id="share-visible" type="checkbox" />
+            Show HUD on screen share
+          </label>
+          <p class="fine" id="display-status">HUD on display 1</p>
+          <button type="button" class="secondary" id="display-btn">Move to other display</button>
+          <p class="fine" id="screen-status">Off</p>
+          <button type="button" class="secondary" id="screen-settings-btn">Screen settings</button>
+          <img id="screen-preview" alt="" hidden />
+          <p class="fine" id="ws-status">Connecting…</p>
+          <p class="fine" id="live-text">Ready.</p>
+          <p class="fine" id="shortcut-hint"></p>
+          <button type="button" class="secondary" id="shortcuts-btn">Edit shortcuts…</button>
+          <p class="fine" id="perm-hint"></p>
+          <p class="fine" id="coach"></p>
+          <p class="fine" id="session-status">Not started.</p>
         </div>
-        <div class="choice-row">
-          <button type="button" class="chip active" id="mode-auto">Auto</button>
-          <button type="button" class="chip" id="mode-shortcut">Shortcut ⌘⇧L</button>
-        </div>
-        <p class="fine" id="mic-status">Off — captures their voice, not yours.</p>
-        <button type="button" class="secondary" id="mic-prefs-btn">Mic settings</button>
-
-        <p class="label">Look</p>
-        <label class="slider-row">
-          <span>Opacity</span>
-          <input id="opacity-slider" type="range" min="28" max="92" value="55" />
-        </label>
-        <label class="check-row">
-          <input id="solid-hover" type="checkbox" checked />
-          Solid on hover
-        </label>
-        <label class="check-row">
-          <input id="share-visible" type="checkbox" />
-          Show HUD on screen share
-        </label>
-        <p class="fine">Off by default — Zoom and Meet cannot see the overlay.</p>
-
-        <p class="label">Display</p>
-        <p class="fine" id="display-status">HUD on display 1</p>
-        <button type="button" class="secondary" id="display-btn">Move to other display</button>
-
-        <p class="label">Screen watch</p>
-        <p class="fine" id="screen-status">Off — stills only when the picture changes.</p>
-        <button type="button" class="secondary" id="screen-btn">Start screen watch</button>
-        <button type="button" class="secondary" id="screen-settings-btn">Screen settings</button>
-        <img id="screen-preview" alt="" hidden />
-
-        <p class="fine" id="ws-status">Connecting…</p>
-        <p class="fine" id="live-text">Ready.</p>
-        <p class="fine" id="shortcut-hint"></p>
-        <button type="button" class="secondary" id="shortcuts-btn">Edit shortcuts…</button>
-        <p class="fine" id="perm-hint"></p>
-        <p class="fine" id="coach">Share a window, not the whole display.</p>
-        <p class="fine" id="session-status">Not started.</p>
       </div>
     </div>
     <script src="./renderer.js"></script>

@@ -4,6 +4,7 @@ import {
   type InterviewStageId,
   type InterviewTrackId,
 } from "@meeting-copilot/types";
+import { defaultAudioSource, markHostPlatform, mediaIsBlocked } from "../compat";
 import { formatAccelerator, type AppSettings } from "../settings";
 import { startCapture, type CaptureSource } from "./audio/capture";
 import "./hud/bridge";
@@ -13,17 +14,35 @@ import {
   applyCollapsed,
   applySessionClock,
   applyShortcutLabels,
+  bindThreadScroll,
   closePopovers,
+  hideHudPops,
+  hideHudTip,
+  makeCopyBtn,
   paintStages,
   persistLook,
   renderTurn,
   resetCard,
   setBusy,
   setChip,
+  setTip,
+  showHudTip,
   syncListenUi,
 } from "./hud/render";
 import { connectGateway, send, sendAssist, sendConfig, sendPcm } from "./hud/socket";
 import { loadAppearance, state } from "./hud/state";
+import { answerPlainText } from "./hud/answer";
+import {
+  clearAssistBuffer,
+  markAssistAnswered,
+  pushScreenFrame,
+  sliceAssistWindow,
+} from "./hud/assistBuffer";
+import { ensureScreenStream, grabStreamShot, stopScreenStream } from "./hud/screenStream";
+
+function grabShot() {
+  return window.copilot.screenMode === "stream" ? grabStreamShot() : window.copilot.grabShot();
+}
 
 function listenChord() {
   return formatAccelerator(state.shortcuts.listen, window.copilot?.platform ?? "darwin");
@@ -100,17 +119,15 @@ async function startListeningCapture() {
 
     if (state.audioSource === "mic") {
       const perm = await window.copilot.requestMic();
-      if (perm.status !== "granted") {
-        $.micStatus.textContent = `Enable ${perm.listName} in Microphone settings.`;
-        await window.copilot.openMicSettings();
+      if (mediaIsBlocked(perm.status)) {
+        $.micStatus.textContent = `Microphone is off. Allow it in ${perm.listName} settings.`;
         return;
       }
     }
 
-    state.capture = await startCapture({
-      source: state.audioSource,
-      onFrame: (pcm) => sendPcm(pcm),
-      onLevel: (rms) => {
+    const captureOpts = {
+      onFrame: (pcm: ArrayBuffer) => sendPcm(pcm),
+      onLevel: (rms: number) => {
         $.meterFill.style.width = `${Math.min(100, Math.round(rms * 400))}%`;
         if (rms >= 0.012) {
           silentForMs = 0;
@@ -124,7 +141,18 @@ async function startListeningCapture() {
               : "Listen is on, but the mic is silent.";
         }
       },
-    });
+    };
+    try {
+      state.capture = await startCapture({ source: state.audioSource, ...captureOpts });
+    } catch (err) {
+      if (state.audioSource !== "system") throw err;
+      const perm = await window.copilot.requestMic();
+      if (mediaIsBlocked(perm.status)) throw err;
+      state.capture = await startCapture({ source: "mic", ...captureOpts });
+      state.audioSource = "mic";
+      setChip($.sourceMic, $.sourceSystem);
+      $.micStatus.textContent = "Their audio isn't available on this computer, so Listen is using your mic.";
+    }
 
     if (state.listenMode === "shortcut") {
       state.capture.setSending(false);
@@ -192,30 +220,35 @@ const BUSY_LABEL: Partial<Record<AssistAction, string>> = {
   follow_up: "Writing follow-ups…",
   fact_check: "Checking that…",
   recap: "Writing recap…",
-  assist: "Writing answer…",
-  ask: "Writing answer…",
+  assist: "Thinking…",
+  ask: "Thinking…",
 };
 
-async function requestAssist(action: AssistAction, text?: string) {
+function requestAssist(
+  action: AssistAction,
+  text?: string,
+  extras?: {
+    jpegBase64?: string;
+    transcript?: string;
+    images?: { imageBase64: string; mimeType?: string }[];
+  },
+) {
   if (state.busy) {
     $.liveText.textContent = "Still working — wait for this answer.";
-    return;
+    return false;
   }
-  const ready = await ensureSession();
-  if (!ready) {
-    $.liveText.textContent = "Start a session first.";
-    return;
+  if (state.socket?.readyState !== WebSocket.OPEN) {
+    $.liveText.textContent = "Gateway offline — try again in a moment.";
+    return false;
   }
   setBusy(true, BUSY_LABEL[action] ?? "Working on it…");
   $.liveText.textContent = BUSY_LABEL[action] ?? "Working on it…";
-  sendAssist(action, text);
+  sendAssist(action, text, extras);
+  return true;
 }
 
 async function watchAndSolveScreen() {
-  const watching = await ensureScreenWatch();
-  if (!watching) return;
-  $.liveText.textContent = "Solving what's on screen…";
-  await requestScreenAssist();
+  await ensureScreenWatch();
 }
 
 async function requestScreenAssist() {
@@ -225,41 +258,76 @@ async function requestScreenAssist() {
   }
   setBusy(true, "Solving what's on screen…");
   $.liveText.textContent = "Solving what's on screen…";
-  const shot = await window.copilot.grabShot();
+  const shot = await grabShot();
   if (!shot.ok || !shot.jpegBase64) {
     setBusy(false);
     $.liveText.textContent =
-      shot.error || "Could not capture the screen. Enable Screen Recording.";
-    await window.copilot.openScreenSettings();
+      shot.error || "Could not capture the screen. Allow Screen Recording, then retry.";
     return;
   }
   $.shotPreview.src = shot.dataUrl || "";
   $.shotChip.hidden = false;
-  const ready = await ensureSession();
-  if (!ready) {
+  if (state.socket?.readyState !== WebSocket.OPEN) {
     setBusy(false);
-    $.liveText.textContent = "Start a session first.";
+    $.liveText.textContent = "Gateway offline — try again in a moment.";
     return;
   }
-  sendAssist("screen", undefined, { jpegBase64: shot.jpegBase64 });
+  sendAssist("screen", undefined, {
+    jpegBase64: shot.jpegBase64,
+    transcript: sliceAssistWindow().transcript,
+  });
 }
 
-function triggerAssist() {
+/** The AI may look at the screen when Screen is on, or while a session is listening. */
+function screenAllowed() {
+  return state.watchingScreen || Boolean(state.sessionId);
+}
+
+/**
+ * Assist sends what was said (recent transcript) and, when screen access is on, a fresh
+ * screenshot. The server answers the newest spoken question with the screen as context,
+ * or solves the screen using what was said.
+ */
+async function triggerAssist() {
   const typed = $.askInput.value.trim();
+  const pack = sliceAssistWindow();
+
   if (typed) {
-    void requestAssist("ask", typed);
     $.askInput.value = "";
+    void requestAssist("ask", typed, { transcript: pack.transcript });
     return;
   }
-  void requestAssist("assist");
+
+  const shot = screenAllowed() ? await grabShot() : null;
+  const image = shot?.ok && shot.jpegBase64 ? shot.jpegBase64 : undefined;
+  if (!image && !pack.question && !pack.transcript) {
+    $.askInput.placeholder = screenAllowed()
+      ? "No question yet — type one, or allow Screen Recording."
+      : "No question yet — type one, or turn on Screen so I can see it.";
+    window.setTimeout(() => {
+      if ($.askInput.placeholder.startsWith("No question yet")) {
+        $.askInput.placeholder = "Ask anything…";
+      }
+    }, 2800);
+    return;
+  }
+  if (image && shot) {
+    $.shotPreview.src = shot.dataUrl || "";
+    $.shotChip.hidden = false;
+  }
+  const sent = requestAssist("assist", pack.question || undefined, {
+    jpegBase64: image,
+    transcript: pack.transcript,
+  });
+  if (sent) markAssistAnswered(pack.to);
 }
 
 function clearContext() {
+  clearAssistBuffer();
+  send({ type: "context.clear", sessionId: state.sessionId || undefined });
   if (!state.sessionId) {
-    resetCard("Waiting for a question…", "Press Listen. It hears the other person, waits until they finish, then answers.");
-    return;
+    resetCard("Ask anything, or press Assist.", "Answers show here when you press Enter or Assist.");
   }
-  send({ type: "context.clear", sessionId: state.sessionId });
 }
 
 async function pollMeetingApp() {
@@ -289,8 +357,108 @@ function stopMeetingWatch() {
   state.meetingTimer = 0;
 }
 
+type SessionRow = {
+  id: string;
+  status: string;
+  started_at: string;
+  transcript_count: number;
+  summary?: string | null;
+  meeting_app?: string | null;
+  job_title?: string | null;
+  company?: string | null;
+};
+
+let pastSessions: SessionRow[] = [];
+let endedSessionId = "";
+
 async function refreshHistory() {
-  /* session list lives on the Home dashboard */
+  if (!state.token) return;
+  try {
+    const listed = await window.copilot.listSessions(state.token);
+    pastSessions = (listed.sessions ?? []) as SessionRow[];
+  } catch {
+    pastSessions = [];
+  }
+  paintHistorySessions();
+}
+
+function paintHistorySessions() {
+  const earlier = pastSessions.filter((row) => row.id !== state.sessionId);
+  if (!earlier.length) {
+    const empty = document.createElement("p");
+    empty.className = "hist-empty";
+    empty.textContent = "No sessions yet.";
+    $.historySessions.replaceChildren(empty);
+    return;
+  }
+  $.historySessions.replaceChildren(
+    ...earlier.slice(0, 8).map((row) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `hist-item${row.id === endedSessionId ? " just-ended" : ""}`;
+      const when = new Date(row.started_at).toLocaleString();
+      const role = [row.job_title, row.company].filter(Boolean).join(" · ");
+      const title = document.createElement("strong");
+      title.textContent = role || row.meeting_app || "Session";
+      const hint = document.createElement("span");
+      hint.textContent = `${when} · ${row.transcript_count} turn${row.transcript_count === 1 ? "" : "s"}`;
+      btn.append(title, hint);
+      btn.addEventListener("click", () => {
+        hideHudPops();
+        void setCollapsed(false);
+        pinAndShowPast(row, role);
+      });
+      return btn;
+    }),
+  );
+}
+
+function pinAndShowPast(row: SessionRow, role: string) {
+  const art = document.createElement("article");
+  art.className = "msg active";
+  const q = document.createElement("p");
+  q.className = "msg-meta";
+  q.textContent = role || "Earlier session";
+  const a = document.createElement("div");
+  const summary = row.summary?.trim();
+  a.className = `msg-a${summary ? "" : " placeholder"}`;
+  a.textContent = summary || "No recap stored for this session.";
+  art.append(q, a);
+  if (summary) art.append(makeCopyBtn());
+  $.thread.replaceChildren(art);
+}
+
+async function openHistoryAfterEnd(endedId: string) {
+  endedSessionId = endedId;
+  resetCard(
+    "Ask anything, or press Assist.",
+    "Answers show here when you press Enter or Assist.",
+  );
+  await refreshHistory();
+  if (endedId && !pastSessions.some((row) => row.id === endedId)) {
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    await refreshHistory();
+  }
+  hideHudPops();
+  $.historyPop.hidden = false;
+  $.hud.classList.add("history-open");
+  $.historyBtn.setAttribute("aria-pressed", "true");
+  void setCollapsed(false);
+}
+
+async function toggleHistoryPop() {
+  const wasOpen = !$.historyPop.hidden;
+  hideHudPops();
+  void window.copilot?.closeHome();
+  if (wasOpen) {
+    if (!state.turns.length) void setCollapsed(true);
+    return;
+  }
+  await refreshHistory();
+  $.historyPop.hidden = false;
+  $.hud.classList.add("history-open");
+  $.historyBtn.setAttribute("aria-pressed", "true");
+  void setCollapsed(false);
 }
 
 async function loadProfile() {
@@ -302,14 +470,75 @@ async function loadProfile() {
   if (profile.defaultTrack) {
     state.track = profile.defaultTrack as InterviewTrackId;
   }
+  await loadModes();
 }
 
-async function showPermissionHint() {
-  const info = await window.copilot.permissionInfo();
-  $.permHint.textContent = `Dev permission name: “${info.listName}”. Displays: ${info.displays.length}`;
-  if (info.displays.length > 1) {
-    $.displayStatus.textContent = `${info.displays.length} displays — move the HUD off the one you will share.`;
+function paintModes() {
+  const active = state.modes.find((item) => item.id === state.activeModeId);
+  setTip($.modesBtn, active ? `Modes — ${active.name}` : "Modes");
+  $.modesGrid.replaceChildren(
+    ...state.modes.map((mode) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `mode-tile${mode.id === state.activeModeId ? " active" : ""}`;
+      const check = document.createElement("span");
+      check.className = "mode-check";
+      check.textContent = mode.id === state.activeModeId ? "✓" : "";
+      const title = document.createElement("strong");
+      title.textContent = mode.name;
+      btn.append(check, title);
+      btn.addEventListener("click", () => {
+        void chooseMode(mode.id);
+      });
+      return btn;
+    }),
+  );
+}
+
+async function loadModes() {
+  if (!state.token) return;
+  const listed = await window.copilot.listModes(state.token);
+  if (listed.error || !listed.modes) return;
+  state.modes = listed.modes;
+  state.activeModeId = listed.activeModeId;
+  paintModes();
+}
+
+async function chooseMode(id: string) {
+  if (!state.token) return;
+  const listed = await window.copilot.selectMode(state.token, id);
+  if (listed.error || !listed.modes) return;
+  state.modes = listed.modes;
+  state.activeModeId = listed.activeModeId;
+  paintModes();
+  sendConfig();
+  closePopovers();
+}
+
+function dismissHudModals() {
+  closePopovers();
+  void window.copilot?.closeHome();
+}
+
+function openHudHome(hash: string) {
+  closePopovers();
+  void window.copilot?.openHome(hash);
+}
+
+async function toggleModesPop() {
+  const wasOpen = !$.modesPop.hidden;
+  hideHudPops();
+  void window.copilot?.closeHome();
+  if (wasOpen) {
+    void window.copilot?.setHudMenu(false);
+    return;
   }
+  await loadModes();
+  $.modesPop.hidden = false;
+  $.hud.classList.add("modes-open");
+  document.documentElement.classList.add("modes-open");
+  $.modesBtn.setAttribute("aria-pressed", "true");
+  await window.copilot?.setHudMenu(true);
 }
 
 async function setCollapsed(next: boolean) {
@@ -318,9 +547,10 @@ async function setCollapsed(next: boolean) {
 }
 
 $.listenPill.addEventListener("click", async () => {
+  dismissHudModals();
   try {
-    if (state.capture) {
-      stopListeningCapture();
+    if (state.sessionId) {
+      startOrEndSession();
       return;
     }
     await startListeningCapture();
@@ -382,7 +612,7 @@ $.smartBtn.addEventListener("click", () => {
 
 function startOrEndSession() {
   if (state.sessionId) {
-    $.sessionStatus.textContent = "Writing recap…";
+    $.sessionStatus.textContent = "Ending session…";
     stopListeningCapture();
     send({ type: "meeting.ended", sessionId: state.sessionId });
     return;
@@ -404,13 +634,27 @@ $.sessionBtn.addEventListener("click", () => startOrEndSession());
 $.launchStart.addEventListener("click", () => startOrEndSession());
 
 $.homeBtn.addEventListener("click", () => {
-  void window.copilot?.openHome("#overview");
+  openHudHome("#general");
+});
+document.getElementById("modes-btn")?.addEventListener("click", () => {
+  void toggleModesPop();
+});
+$.modesManage.addEventListener("click", () => {
+  openHudHome("#modes");
+});
+document.getElementById("history-btn")?.addEventListener("click", () => {
+  void toggleHistoryPop();
 });
 $.shortcutsBtn.addEventListener("click", () => {
-  void window.copilot?.openHome("#settings");
+  openHudHome("#shortcuts");
 });
 $.collapseBtn.addEventListener("click", () => {
   void setCollapsed(!state.collapsed);
+});
+$.backBtn.addEventListener("click", () => {
+  if (state.collapsed) return;
+  hideHudPops();
+  void setCollapsed(true);
 });
 $.hideBtn.addEventListener("click", () => {
   void window.copilot?.hideHud();
@@ -434,7 +678,10 @@ function toggleShareVisibility() {
     : "HUD hidden from screen share.";
 }
 
-$.shareBtn.addEventListener("click", () => toggleShareVisibility());
+$.shareBtn.addEventListener("click", () => {
+  dismissHudModals();
+  toggleShareVisibility();
+});
 
 $.shareVisible.addEventListener("change", () => {
   state.shareVisible = $.shareVisible.checked;
@@ -466,43 +713,63 @@ function bindHudDrag(root: HTMLElement) {
   let lastX = 0;
   let lastY = 0;
   let dragging = false;
+  let didDrag = false;
+  let active = false;
+
+  const onMove = (event: PointerEvent) => {
+    if (!active) return;
+    const dx = event.screenX - lastX;
+    const dy = event.screenY - lastY;
+    if (!dragging && Math.hypot(dx, dy) < 4) return;
+    dragging = true;
+    didDrag = true;
+    if (!root.hasPointerCapture(event.pointerId)) {
+      try {
+        root.setPointerCapture(event.pointerId);
+      } catch {
+        /* already captured or released */
+      }
+    }
+    window.copilot?.moveHudBy(dx, dy);
+    lastX = event.screenX;
+    lastY = event.screenY;
+  };
+
+  const onUp = () => {
+    active = false;
+    dragging = false;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+
   root.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    if (target.closest("button, select, input, textarea, a, .actions, .ask-bar, .code-block")) {
-      return;
-    }
-    dragging = true;
-    lastX = event.screenX;
-    lastY = event.screenY;
-    root.setPointerCapture(event.pointerId);
-  });
-  root.addEventListener("pointermove", (event) => {
-    if (!dragging) return;
-    window.copilot?.moveHudBy(event.screenX - lastX, event.screenY - lastY);
-    lastX = event.screenX;
-    lastY = event.screenY;
-  });
-  root.addEventListener("pointerup", () => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input, textarea, select")) return;
+    active = true;
     dragging = false;
+    didDrag = false;
+    lastX = event.screenX;
+    lastY = event.screenY;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   });
+  root.addEventListener(
+    "click",
+    (event) => {
+      if (!didDrag) return;
+      didDrag = false;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true,
+  );
 }
 
-const topbar = document.getElementById("topbar");
-if (topbar) bindHudDrag(topbar);
-bindHudDrag($.launch);
+bindHudDrag($.hud);
 
-function setGhostChip(passThrough: boolean) {
-  const live = Boolean(state.sessionId);
-  $.ghostChip.hidden = !live;
-  if (!live) return;
-  const unlock = formatAccelerator(
-    state.shortcuts.interact,
-    window.copilot?.platform ?? "darwin",
-  );
-  $.ghostChip.textContent = passThrough
-    ? `Clicks pass through the HUD — ${unlock} to use it`
-    : `HUD clicks on — ${unlock} to pass through again`;
+function setGhostChip(_passThrough: boolean) {
+  $.ghostChip.hidden = true;
 }
 
 for (const field of [$.askInput, $.stageSelect]) {
@@ -517,10 +784,30 @@ for (const field of [$.askInput, $.stageSelect]) {
 
 $.askForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  dismissHudModals();
   triggerAssist();
 });
 
-$.answer.addEventListener("click", async (event) => {
+$.thread.addEventListener("click", async (event) => {
+  const msgCopy = (event.target as HTMLElement).closest(".msg-copy");
+  if (msgCopy instanceof HTMLButtonElement) {
+    const turnId = (msgCopy.closest(".msg") as HTMLElement | null)?.dataset.turn;
+    const answer = state.turns.find((turn) => turn.id === turnId)?.answer ?? "";
+    const text = answerPlainText(answer);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      msgCopy.classList.add("copied");
+      msgCopy.dataset.tip = "Copied";
+      setTimeout(() => {
+        msgCopy.classList.remove("copied");
+        msgCopy.dataset.tip = "Copy";
+      }, 1200);
+    } catch {
+      msgCopy.dataset.tip = "Copy failed";
+    }
+    return;
+  }
   const btn = (event.target as HTMLElement).closest(".copy-btn");
   if (!(btn instanceof HTMLButtonElement)) return;
   const block = btn.closest(".code-block");
@@ -554,24 +841,31 @@ async function ensureScreenWatch() {
   if (state.watchingScreen) return true;
   const result = await window.copilot.startScreen();
   if (!result.ok) {
-    $.screenStatus.textContent = `Screen Recording blocked. Enable ${result.listName} in Screen Recording, then retry.`;
-    await window.copilot.openScreenSettings();
+    $.screenStatus.textContent = `Screen Recording is off. Allow it for ${result.listName}, then retry.`;
+    return false;
+  }
+  if (window.copilot.screenMode === "stream" && !(await ensureScreenStream())) {
+    $.screenStatus.textContent = "Screen sharing was cancelled. Turn Screen on again and pick a screen.";
     return false;
   }
   state.watchingScreen = true;
   state.skipped = 0;
   state.emitted = 0;
-  $.screenBtn.textContent = "Stop screen watch";
-  $.screenStatus.textContent = "Watching the screen and solving when a problem appears.";
+  $.screenBtn.setAttribute("aria-pressed", "true");
+  setTip($.screenBtn, `Screen — watching`);
+  $.screenStatus.textContent = "Watching the screen. Assist uses it when the question is about what's on screen.";
   return true;
 }
 
 $.screenBtn.addEventListener("click", async () => {
+  dismissHudModals();
   if (state.watchingScreen) {
     await window.copilot.stopScreen();
+    stopScreenStream();
     state.watchingScreen = false;
     $.screenPreview.hidden = true;
-    $.screenBtn.textContent = "Start screen watch";
+    $.screenBtn.setAttribute("aria-pressed", "false");
+    applyShortcutLabels();
     $.screenStatus.textContent = "Off — stills only when the picture changes.";
     return;
   }
@@ -609,6 +903,7 @@ if (window.copilot) {
   });
   window.copilot.onContextClear(() => clearContext());
   window.copilot.onCollapsed((next) => applyCollapsed(next));
+  window.copilot.onClosePops(() => closePopovers());
   window.copilot.onProfileChanged(() => {
     void loadProfile();
   });
@@ -620,31 +915,15 @@ if (window.copilot) {
   window.copilot.onScreenFrame((frame) => {
     if (!frame.changed) {
       state.skipped += 1;
-      $.screenStatus.textContent = `${frame.name}: unchanged (${state.skipped} skipped, ${state.emitted} sent)`;
       return;
     }
     state.emitted += 1;
     state.skipped = 0;
-    $.screenStatus.textContent = `${frame.name}: change ${(frame.diffRatio * 100).toFixed(0)}% — event ${state.emitted}`;
     if (frame.dataUrl) {
       $.screenPreview.src = frame.dataUrl;
       $.screenPreview.hidden = false;
     }
-    if (!state.sessionId) {
-      $.liveText.textContent = "Screen changed, but start a session to persist it.";
-      return;
-    }
-    if (!frame.jpegBase64) return;
-    send({
-      type: "screen.changed",
-      sessionId: state.sessionId,
-      timestamp: Date.now(),
-      ocrText: "",
-      imageRef: frame.sourceId,
-      imageBase64: frame.jpegBase64,
-      mimeType: "image/jpeg",
-      diffRatio: frame.diffRatio,
-    });
+    if (frame.jpegBase64) pushScreenFrame(frame.jpegBase64);
   });
 }
 
@@ -652,7 +931,20 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closePopovers();
 });
 
+$.hud.addEventListener("mouseover", (event) => {
+  const hit = (event.target as HTMLElement | null)?.closest?.("[data-tip]");
+  if (hit instanceof HTMLElement && $.hud.contains(hit)) showHudTip(hit);
+  else hideHudTip();
+});
+$.hud.addEventListener("mouseleave", () => hideHudTip());
+
 async function boot() {
+  markHostPlatform(window.copilot?.platform);
+  if (defaultAudioSource(window.copilot?.platform ?? "", window.copilot?.osVersion ?? "") === "mic") {
+    state.audioSource = "mic";
+    setChip($.sourceMic, $.sourceSystem);
+  }
+  bindThreadScroll();
   loadAppearance();
   applyAppearance();
   if (window.copilot?.getSettings) {
@@ -666,11 +958,11 @@ async function boot() {
     applyShortcutLabels();
   }
   fillStages();
-  applyCollapsed(false);
+  applyCollapsed(true);
   applySessionClock();
   resetCard(
-    "Waiting for a question…",
-    "Press Listen. It hears the other person, waits until they finish, then answers.",
+    "Ask anything, or press Assist.",
+    "Answers show here when you press Enter or Assist.",
   );
   syncListenUi();
   try {
@@ -686,14 +978,13 @@ async function boot() {
     if (!health.ok) {
       $.liveText.textContent = "API is up but not ready.";
     }
-    await setCollapsed(false);
+    await setCollapsed(true);
   } catch (err) {
     $.sessionStatus.textContent =
       "API/auth unavailable. Start Postgres, Redis, and `npm run dev:api`.";
     console.error(err);
   }
   if (!window.copilot) return;
-  await showPermissionHint();
   connectGateway({
     startMeetingWatch,
     stopMeetingWatch,
@@ -702,6 +993,7 @@ async function boot() {
     stopListeningCapture,
     rearmListen,
     watchAndSolveScreen,
+    openHistoryAfterEnd,
   });
 }
 

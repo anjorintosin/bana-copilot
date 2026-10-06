@@ -150,7 +150,7 @@ Rules:
 - forbidden: one line of things a model might invent that are NOT in the resume
 - signals: 3-8 keywords an interviewer might say
 - Skip skill lists and education. Prefer projects, incidents, conflict, results.
-- Thin resume → fewer stories. Never invent employers or metrics.`;
+- Thin resume → fewer stories. Never invent employers, metrics, or a language that is not in the resume (especially not Java or Python unless those words appear).`;
 
 function asString(value: unknown, max: number) {
   return sanitizeText(value, { max, multiline: false });

@@ -14,6 +14,10 @@ import {
 } from "./questions.js";
 import { aiStatus, runWithAi, type AiCreds } from "./llm/client.js";
 import { analyzeScreen, type ScreenAnalysis } from "./llm/vision.js";
+import { KNOWLEDGE_IN_BRIEF, assistScreenAsk } from "./llm/prompts.js";
+import { chunkKnowledge, pickKnowledge } from "./modeKnowledge.js";
+import { flagFromScores, scoreGrounding } from "./grounding.js";
+import { jevEnabled } from "./llm/jev.js";
 import {
   classifyTurn,
   resolveSpecialist,
@@ -24,10 +28,19 @@ import {
   toSpoken,
 } from "./engine.js";
 import { formatStory, specialistNeedsStory } from "./stories.js";
+import {
+  formatPacketPrompt,
+  isJunkScreenText,
+  looksLikeAlgoProblem,
+  looksLikeCompleteCodingProblem,
+  markAnswered,
+  mergeScreenPacket,
+  type ScreenPacket,
+} from "./screenPacket.js";
 import { RealtimeTranscriber } from "./stt/realtime.js";
 import { WhisperTranscriber } from "./stt/whisper.js";
 import { TurnAssembler } from "./turns.js";
-import { routeQuestion } from "./agents/router.js";
+import { isFollowUp, routeQuestion } from "./agents/router.js";
 import { getTrack } from "./agents/tracks.js";
 import {
   classifyIntent,
@@ -79,6 +92,7 @@ type SessionMemory = {
   listenMode: ListenMode;
   brief: string;
   briefPromise?: Promise<void>;
+  knowledge: string[];
   stories: Story[];
   claims: ClaimsLedger;
   pendingTurn: string;
@@ -88,6 +102,8 @@ type SessionMemory = {
     company?: string | null;
     requirements?: string | null;
   };
+  screenPacket?: ScreenPacket;
+  pendingScreen?: { imageBase64: string; mimeType?: string; diffRatio?: number };
 };
 
 const memory = new Map<string, SessionMemory>();
@@ -113,6 +129,7 @@ function mem(sessionId: string): SessionMemory {
     inferredStage: "auto",
     listenMode: "auto",
     brief: "",
+    knowledge: [],
     stories: [],
     claims: emptyClaims(),
     pendingTurn: "",
@@ -129,12 +146,41 @@ export function setSessionTrack(sessionId: string, track?: InterviewTrackId) {
 
 export function configureSession(
   sessionId: string,
-  cfg: { track?: InterviewTrackId; stage?: InterviewStageId; listenMode?: ListenMode },
+  cfg: {
+    track?: InterviewTrackId;
+    stage?: InterviewStageId;
+    listenMode?: ListenMode;
+    modeId?: string;
+  },
 ) {
   const state = mem(sessionId);
   if (cfg.track) state.track = cfg.track;
   if (cfg.stage) state.stage = cfg.stage;
   if (cfg.listenMode) state.listenMode = cfg.listenMode;
+  if (cfg.modeId) {
+    state.brief = "";
+    state.knowledge = [];
+    state.briefPromise = undefined;
+  }
+}
+
+type LoadedProfile = {
+  brief: string;
+  job: { title?: string | null; company?: string | null; requirements?: string | null };
+  stories?: Story[];
+  knowledge?: string;
+};
+
+function applyProfile(state: SessionMemory, loaded: LoadedProfile) {
+  state.brief = loaded.brief;
+  state.job = loaded.job;
+  state.stories = loaded.stories ?? [];
+  const knowledge = loaded.knowledge ?? "";
+  state.knowledge = knowledge.length > KNOWLEDGE_IN_BRIEF ? chunkKnowledge(knowledge) : [];
+}
+
+export function hydrateSessionProfile(sessionId: string, loaded: LoadedProfile) {
+  applyProfile(mem(sessionId), loaded);
 }
 
 export function clearSessionMemory(sessionId: string) {
@@ -161,12 +207,21 @@ function pickQuestion(text: string, track: InterviewTrackId, stage?: InterviewSt
   return { isQuestion: true as const, kind: specialist.id, text };
 }
 
-function formatScreenContext(screen?: ScreenCtx) {
+function formatScreenContext(screen?: ScreenCtx, packet?: ScreenPacket) {
+  if (packet && (packet.passage || packet.questions.length)) {
+    return formatPacketPrompt(packet, packet.questions, {
+      imageHasQuestions: packet.questions.length > 0,
+    });
+  }
   if (!screen || Date.now() - screen.at > 5 * 60_000) return "";
   const parts = [
     screen.title && `Title: ${screen.title}`,
     screen.language && `Language: ${screen.language}`,
     screen.signature && `Signature: ${screen.signature}`,
+    screen.passage && `Statement: ${screen.passage}`,
+    screen.questions.length
+      ? `Questions:\n${screen.questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`
+      : "",
     screen.problem && `Problem: ${screen.problem}`,
     screen.ocrText && `Text: ${screen.ocrText}`,
   ].filter(Boolean);
@@ -177,7 +232,22 @@ type CueOpts = {
   imageBase64?: string;
   mimeType?: string;
   groundToScreen?: boolean;
+  maxTokens?: number;
+  /** Shown in the HUD instead of the prompt text. */
+  displayText?: string;
+  /** Resolves to a readable question title that replaces displayText once known. */
+  questionTitle?: Promise<string | null>;
 };
+
+function screenTitle(analysis: ScreenAnalysis) {
+  const firstLine = (text: string) => text.split(/\n|(?<=[.?!])\s/)[0]?.trim() ?? "";
+  const pick =
+    analysis.title.trim() ||
+    analysis.questions[0] ||
+    firstLine(analysis.problem) ||
+    firstLine(analysis.ocrText);
+  return pick ? pick.slice(0, 160) : null;
+}
 
 type AnswerExtras = {
   ai?: AiCreds | null;
@@ -188,11 +258,7 @@ type AnswerExtras = {
     context: string;
     job: { title?: string | null; company?: string | null; requirements?: string | null };
   }>;
-  candidateBrief?: () => Promise<{
-    brief: string;
-    job: { title?: string | null; company?: string | null; requirements?: string | null };
-    stories?: Story[];
-  }>;
+  candidateBrief?: () => Promise<LoadedProfile>;
 };
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
@@ -206,17 +272,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 
 async function ensureBrief(sessionId: string, extras?: AnswerExtras) {
   const state = mem(sessionId);
-  if (state.brief || !extras?.candidateBrief) return;
+  if (!extras?.candidateBrief) return;
+  if (state.brief) return;
   if (!state.briefPromise) {
     state.briefPromise = extras
       .candidateBrief()
-      .then((loaded) => {
-        state.brief = loaded.brief;
-        state.job = loaded.job;
-        state.stories = loaded.stories ?? [];
-      })
+      .then((loaded) => applyProfile(state, loaded))
       .catch(() => {
-        /* answers still work without a brief */
+        state.briefPromise = undefined;
       });
   }
   await state.briefPromise;
@@ -281,19 +344,29 @@ async function streamCueCardInner(
     state.inferredStage = stage;
     await emit({ type: "session.stage", stage, inferred: true });
   }
+  const turnRecord = {
+    question: opts?.displayText ?? classified.text,
+    kind: classified.kind,
+    answer: "",
+  };
   await emit({
     type: "question.detected",
     questionId,
     kind: specialist.id,
     agent: specialist.label,
-    text: classified.text,
+    text: turnRecord.question,
     source,
   });
+  void opts?.questionTitle?.then(async (title) => {
+    if (!title) return;
+    turnRecord.question = title;
+    await emit({ type: "question.updated", questionId, text: title });
+  }).catch(() => undefined);
   await emit({ type: "answer.started", questionId });
   try {
     let full = "";
     const groundToScreen = Boolean(opts?.groundToScreen);
-    if (!groundToScreen && !state.brief) await ensureBrief(sessionId, extras);
+    if (!state.brief) await withTimeout(ensureBrief(sessionId, extras), 1500);
 
     let ragContext = "";
     let picked: Story | null = null;
@@ -302,8 +375,8 @@ async function streamCueCardInner(
       if (picked) ragContext = formatStory(picked);
     } else if (!groundToScreen && specialistNeedsRag(specialist.id) && extras?.resumeContext) {
       const retrieved = await withTimeout(
-        extras.resumeContext(classified.text, { k: 2 }),
-        180,
+        extras.resumeContext(classified.text, { k: 4 }),
+        800,
       );
       if (retrieved) {
         ragContext = retrieved.context;
@@ -317,14 +390,16 @@ async function streamCueCardInner(
       track: state.track,
       stage,
       intent: classified.intent,
-      brief: groundToScreen ? "" : state.brief,
+      brief: state.brief,
+      knowledge: state.knowledge,
       ragContext,
       prior: groundToScreen ? [] : state.turns,
-      screenContext: formatScreenContext(state.screen),
-      rollingSummary: groundToScreen ? "" : state.rollingSummary,
+      screenContext: formatScreenContext(state.screen, state.screenPacket),
+      rollingSummary: state.rollingSummary,
       claims: groundToScreen ? "" : formatClaims(state.claims),
       smart: smart || groundToScreen,
       groundToScreen,
+      maxTokens: opts?.maxTokens,
       image: opts?.imageBase64
         ? {
             base64: opts.imageBase64,
@@ -337,11 +412,32 @@ async function streamCueCardInner(
       await emit({ type: "answer.delta", questionId, text: delta });
     }
     const spoken = toSpoken(full);
-    state.turns.push({
-      question: classified.text,
-      kind: classified.kind,
-      answer: spoken,
-    });
+    if (!groundToScreen && specialist.id !== "coding" && jevEnabled()) {
+      const saidBefore = formatClaims(state.claims);
+      const evidence = [
+        state.brief ? `Candidate profile and mode:\n${state.brief}` : "",
+        ragContext ? `Retrieved for this question:\n${ragContext}` : "",
+        state.knowledge.length
+          ? `Mode knowledge:\n${pickKnowledge(state.knowledge, classified.text)}`
+          : "",
+        saidBefore ? `Already said in this interview:\n${saidBefore}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const checkedAt = Date.now();
+      void scoreGrounding({ question: classified.text, answer: full, evidence })
+        .then((scores) => {
+          if (!scores) return;
+          const flag = flagFromScores(scores);
+          console.log(
+            `[jev] ${JSON.stringify({ agent: specialist.id, invented: Number(scores.invented.toFixed(2)), contradicts: Number(scores.contradicts.toFixed(2)), ms: Date.now() - checkedAt, flagged: flag?.kind ?? false })}`,
+          );
+          return flag ? emit({ type: "answer.flag", questionId, ...flag }) : undefined;
+        })
+        .catch(() => undefined);
+    }
+    turnRecord.answer = spoken;
+    state.turns.push(turnRecord);
     if (state.turns.length > 20) state.turns.shift();
     state.claims = heuristicClaims({
       answer: spoken,
@@ -351,12 +447,19 @@ async function streamCueCardInner(
     if (!isFollowUpQuestion(classified.text) && picked) {
       state.claims.story = picked.name;
     }
-    await emit({ type: "answer.completed", questionId, text: spoken });
+    await emit({ type: "answer.completed", questionId, text: full });
     // Hold the card while you talk it through. Screen-watch and leaked
     // speech should not swap the answer unless a new interviewer question lands.
-    state.speakingUntil = Date.now() + (source === "screen" ? 12_000 : 45_000);
+    state.speakingUntil = Date.now() + (source === "screen" ? 6_000 : 45_000);
     void refreshRollingSummary(sessionId, emit);
     void refreshClaims(sessionId, classified.text, spoken, picked?.name);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not write an answer.";
+    await emit({
+      type: "session.error",
+      code: /claude|key/i.test(message) ? "llm_key" : "llm",
+      message,
+    });
   } finally {
     state.answering = false;
   }
@@ -695,13 +798,15 @@ export async function startListening(
   if (extras?.ai) state.ai = extras.ai;
   const status = withSessionAi(sessionId, () => aiStatus());
   if (!status.stt) {
+    const named = status.provider === "claude" || status.provider === "grok";
+    const label = status.provider === "grok" ? "Grok" : "Claude";
     await emit({
       type: "session.error",
-      code: status.llm && status.provider === "claude" ? "need_stt" : "no_ai_key",
+      code: status.llm && named ? "need_stt" : "no_ai_key",
       message:
-        status.llm && status.provider === "claude"
-          ? "Claude can write answers. Live listen needs Hosted AI or an OpenAI-compatible key."
-          : "Subscribe on the Plan page, or add your model key there.",
+        status.llm && named
+          ? `${label} can write answers. Type the question or press Assist — live listen needs a speech key.`
+          : "Add your model key on the Plan page.",
     });
     return;
   }
@@ -742,7 +847,9 @@ export async function startListening(
           console.error("[turn-busy]", sessionId.slice(0, 8), classified.text.slice(0, 140));
           return;
         }
-        void streamCueCard(sessionId, classified, emit, extras, "audio");
+        state.lastQuestion = classified.text;
+        state.lastAskedAt = Date.now();
+        state.pendingTurn = classified.text;
       });
       });
     },
@@ -872,7 +979,43 @@ async function solveFromScreenshot(
   emit: (event: Record<string, unknown>) => void | Promise<void>,
   extras?: AnswerExtras,
   source: "screen" | "assist" = "assist",
+  conversation = "",
 ) {
+  const state = mem(sessionId);
+
+  if (source === "assist") {
+    const ask = assistScreenAsk(conversation);
+    if (extras?.ai) state.ai = extras.ai;
+    const questionTitle = withSessionAi(sessionId, () =>
+      analyzeScreen(image, mimeType, { detail: "high" }),
+    )
+      .then((analysis) => {
+        if (!analysis || analysis.kind === "idle") return null;
+        state.screen = { ...analysis, at: Date.now() };
+        return screenTitle(analysis);
+      })
+      .catch(() => null);
+    await streamCueCard(
+      sessionId,
+      {
+        kind: "coding",
+        text: ask,
+      },
+      emit,
+      extras,
+      source,
+      true,
+      {
+        imageBase64: image,
+        mimeType,
+        groundToScreen: true,
+        displayText: "What's on screen",
+        questionTitle,
+      },
+    );
+    return;
+  }
+
   let analysis: ScreenAnalysis | null = null;
   try {
     analysis = await analyzeScreen(image, mimeType, { detail: "high" });
@@ -888,37 +1031,133 @@ async function solveFromScreenshot(
     }
   }
 
+  let fresh: { key: string; text: string }[] = [];
   if (analysis && analysis.kind !== "idle") {
-    mem(sessionId).screen = { ...analysis, at: Date.now() };
+    const merged = mergeScreenPacket(state.screenPacket, analysis);
+    state.screenPacket = merged.packet;
+    fresh = merged.fresh;
+    state.screen = { ...analysis, at: Date.now() };
+    const waiting =
+      !looksLikeCompleteCodingProblem(analysis) &&
+      merged.packet.questions.length === 0 &&
+      merged.packet.passage.length >= 40;
     await emit({
       type: "screen.insight",
       kind: analysis.kind,
       title: analysis.title,
-      text: (analysis.problem || analysis.ocrText).slice(0, 280),
+      text: waiting
+        ? "Statement saved. Scroll down so I can see the questions."
+        : (analysis.problem || analysis.ocrText).slice(0, 280),
       ocrText: analysis.ocrText,
     });
   }
 
   if (source === "screen" && analysis?.kind === "idle") return;
+  if (!analysis) {
+    if (source === "assist") {
+      await emit({
+        type: "session.error",
+        code: "no_prompt",
+        message: "I couldn't read the screen. Make sure the question is fully visible, then press Assist again.",
+      });
+    }
+    return;
+  }
 
-  const language = analysis?.language
-    ? `Language: ${analysis.language}.`
-    : "Use the language visible in the editor or starter code.";
-  const signature = analysis?.signature ? `Starter: ${analysis.signature}` : "";
-  const body = (analysis?.problem || analysis?.ocrText || "").slice(0, 1600);
-  const question = [
-    "Solve only the interview problem in the attached screenshot.",
-    language,
-    signature,
-    body || "Read the screenshot. Do not invent a different problem.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const packet = state.screenPacket;
+  const visible = analysis.questions
+    .filter((text) => !isJunkScreenText(text))
+    .map((text) => ({
+      key: text.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 180),
+      text,
+    }));
+  const unanswered = (packet?.questions ?? []).filter(
+    (item) => !packet?.answered.includes(item.key),
+  );
+  const toAnswer =
+    source === "assist"
+      ? visible.length
+        ? visible
+        : unanswered
+      : fresh.filter((item) => !packet?.answered.includes(item.key));
 
+  if (looksLikeCompleteCodingProblem(analysis) && toAnswer.length === 0) {
+    const language = analysis.language ? `Language: ${analysis.language}.` : "";
+    const signature = analysis.signature ? `Starter: ${analysis.signature}` : "";
+    const body = (analysis.problem || analysis.ocrText || "").slice(0, 1600);
+    await streamCueCard(
+      sessionId,
+      {
+        kind: "coding",
+        text: ["Solve only the interview problem in the attached screenshot.", language, signature, body]
+          .filter(Boolean)
+          .join("\n"),
+      },
+      emit,
+      extras,
+      source,
+      true,
+      { imageBase64: image, mimeType, groundToScreen: true },
+    );
+    return;
+  }
+
+  if (toAnswer.length === 0) {
+    const body = [analysis.problem, analysis.ocrText, analysis.passage]
+      .map((item) => (item || "").trim())
+      .find((item) => item.length >= 20 && !isJunkScreenText(item)) || "";
+    if (body.length >= 20) {
+      const algo = looksLikeAlgoProblem(body) || analysis.kind === "code";
+      await streamCueCard(
+        sessionId,
+        {
+          kind: algo ? "coding" : analysis.kind === "code" ? "coding" : "technical",
+          text: [
+            "Answer the interview or coding problem visible on the attached screenshot. Ignore Cursor, this HUD, and any IDE chat.",
+            analysis.language ? `Language: ${analysis.language}.` : "",
+            body.slice(0, 2400),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+        emit,
+        extras,
+        source,
+        true,
+        {
+          imageBase64: image,
+          mimeType,
+          groundToScreen: true,
+        },
+      );
+      return;
+    }
+    if (source === "assist") {
+      await emit({
+        type: "session.error",
+        code: "no_prompt",
+        message: "I couldn't read a question on the screen. Make sure it is fully visible, then press Assist again.",
+      });
+    }
+    return;
+  }
+
+  const question = formatPacketPrompt(packet ?? { title: "", language: "", passage: "", questions: toAnswer, answered: [] }, toAnswer, {
+    imageHasQuestions: analysis.questions.length > 0,
+  });
+  if (state.screenPacket) {
+    state.screenPacket = markAnswered(
+      state.screenPacket,
+      toAnswer.map((item) => item.key),
+    );
+  }
+
+  const extract = [analysis.problem, analysis.ocrText, analysis.passage, ...toAnswer.map((item) => item.text)].join("\n");
+  const algo = looksLikeAlgoProblem(extract) || analysis.kind === "code";
   await streamCueCard(
     sessionId,
     {
-      kind: analysis?.kind === "docs" ? "technical" : "coding",
+      kind: algo ? "coding" : analysis.kind === "docs" || analysis.kind === "slide" ? "technical" : "coding",
       text: question,
     },
     emit,
@@ -929,6 +1168,7 @@ async function solveFromScreenshot(
       imageBase64: image,
       mimeType,
       groundToScreen: true,
+      maxTokens: algo ? undefined : Math.min(900, 420 + toAnswer.length * 180),
     },
   );
 }
@@ -941,23 +1181,18 @@ export async function handleScreenFrame(
     imageRef?: string;
     diffRatio?: number;
   },
-  emit: (event: Record<string, unknown>) => void | Promise<void>,
-  extras?: AnswerExtras,
+  _emit: (event: Record<string, unknown>) => void | Promise<void>,
+  _extras?: AnswerExtras,
 ) {
-  const state = mem(sessionId);
   const image = input.imageBase64?.trim() ?? "";
   if (image.length < 800) return;
-  if (state.visionBusy || holdingLiveAnswer(sessionId)) return;
-  if ((input.diffRatio ?? 0) < 0.08) return;
-  if (!aiStatus().llm) return;
-
-  state.visionBusy = true;
-  try {
-    state.lastVisionAt = Date.now();
-    await solveFromScreenshot(sessionId, image, input.mimeType, emit, extras, "screen");
-  } finally {
-    state.visionBusy = false;
-  }
+  const state = mem(sessionId);
+  state.lastVisionAt = Date.now();
+  state.pendingScreen = {
+    imageBase64: image,
+    mimeType: input.mimeType,
+    diffRatio: input.diffRatio,
+  };
 }
 
 function latestFallback(sessionId: string) {
@@ -975,7 +1210,9 @@ export async function handleAssistRequest(
   input: {
     action: AssistAction;
     text?: string;
+    transcript?: string;
     imageBase64?: string;
+    images?: { imageBase64: string; mimeType?: string }[];
     mimeType?: string;
     smart?: boolean;
   },
@@ -993,8 +1230,21 @@ export async function handleAssistRequest(
     return;
   }
 
-  if (input.action === "screen") {
-    if (!input.imageBase64) {
+  const packed = (input.transcript ?? "").trim();
+  const latestImage =
+    input.images?.[input.images.length - 1]?.imageBase64 ||
+    input.imageBase64 ||
+    state.pendingScreen?.imageBase64;
+  const latestMime =
+    input.images?.[input.images.length - 1]?.mimeType ||
+    input.mimeType ||
+    state.pendingScreen?.mimeType;
+
+  const typed = input.text ? sanitizeText(input.text, { max: LIMITS.question }) : "";
+  const conversation = packed || state.recent.slice(-8).join(" ").trim();
+  const solveScreen = input.action === "screen" || (input.action === "assist" && !typed && Boolean(latestImage));
+  if (solveScreen) {
+    if (!latestImage) {
       await emit({
         type: "session.error",
         code: "no_prompt",
@@ -1004,20 +1254,17 @@ export async function handleAssistRequest(
     }
     await solveFromScreenshot(
       sessionId,
-      input.imageBase64,
-      input.mimeType,
+      latestImage,
+      latestMime,
       emit,
       extras,
       "assist",
+      conversation,
     );
     return;
   }
 
-  const built = assistPrompt(
-    input.action,
-    input.text ? sanitizeText(input.text, { max: LIMITS.question }) : input.text,
-    latestFallback(sessionId),
-  );
+  const built = assistPrompt(input.action, typed, conversation || latestFallback(sessionId));
   if ("error" in built) {
     await emit({
       type: "session.error",
@@ -1027,18 +1274,32 @@ export async function handleAssistRequest(
     return;
   }
 
+  const useScreen = input.action !== "ask" && Boolean(latestImage);
+  const question = conversation && conversation !== built.text
+    ? `${built.text}\n\nRecent conversation (oldest first):\n${conversation.slice(-2400)}`
+    : built.text;
+
+  const previousKind = state.turns.at(-1)?.kind;
   const specialist =
     built.action === "assist" || built.action === "ask"
-      ? routeQuestion(built.text, state.track, undefined, sessionStage(state, built.text))
+      ? previousKind && isFollowUp(built.text)
+        ? resolveSpecialist(previousKind)
+        : routeQuestion(built.text, state.track, undefined, sessionStage(state, built.text))
       : resolveSpecialist(built.kind);
 
   await streamCueCard(
     sessionId,
-    { kind: specialist.id, text: built.text },
+    { kind: specialist.id, text: question },
     emit,
     extras,
     "assist",
     Boolean(input.smart),
+    {
+      displayText: built.text,
+      ...(useScreen
+        ? { imageBase64: latestImage, mimeType: latestMime, groundToScreen: false }
+        : {}),
+    },
   );
 }
 
@@ -1051,6 +1312,8 @@ export function resetLiveContext(sessionId: string) {
   state.lastAskedAt = 0;
   state.turns = [];
   state.screen = undefined;
+  state.screenPacket = undefined;
+  state.pendingScreen = undefined;
   state.rollingSummary = "";
   state.lastSummaryTurns = 0;
   state.brief = "";
@@ -1063,8 +1326,10 @@ export function resetLiveContext(sessionId: string) {
 }
 
 export { aiStatus, runWithAi, type AiCreds };
+export { verifyModelKey } from "./llm/verifyKey.js";
 export { chunkResume, embedTexts, rankChunks } from "./embeddings.js";
 export { formatCandidateBrief, collectAnswer } from "./engine.js";
+export { extractStack, formatGroundTruth, sliceResumeForBrief } from "./facts.js";
 export {
   extractStories,
   formatStory,

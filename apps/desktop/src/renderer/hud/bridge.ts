@@ -1,4 +1,4 @@
-import type { BillingAccount, PracticeQuestion, Story } from "@meeting-copilot/types";
+import type { AnswerModeList, BillingAccount, PracticeQuestion, Story } from "@meeting-copilot/types";
 import type { CaptureSource } from "../audio/capture";
 import type { AppSettings } from "../../settings";
 
@@ -18,6 +18,8 @@ export type CopilotBridge = {
   httpUrl: string;
   packaged?: boolean;
   platform: string;
+  osVersion?: string;
+  screenMode?: "poll" | "stream";
   ensureAuth: () => Promise<{ token: string; userId: string }>;
   listSessions: (token: string) => Promise<{
     sessions?: {
@@ -32,11 +34,21 @@ export type CopilotBridge = {
   }>;
   permissionInfo: () => Promise<{
     status: string;
+    mic?: string;
+    screen?: string;
     listName: string;
     execPath: string;
     displays: { index: number; primary: boolean }[];
   }>;
   requestMic: () => Promise<{ status: string; listName: string }>;
+  probeScreen: () => Promise<{
+    status: string;
+    ok: boolean;
+    sources?: number;
+    hasPixels?: boolean;
+    error?: string;
+    listName: string;
+  }>;
   openMicSettings: () => Promise<{ ok: boolean }>;
   openScreenSettings: () => Promise<{ ok: boolean }>;
   listScreens: () => Promise<{ ok: boolean; error?: string; listName: string }>;
@@ -57,12 +69,14 @@ export type CopilotBridge = {
   }>;
   cycleDisplay: () => Promise<{ index: number; count: number; primary: boolean }>;
   setCollapsed: (collapsed: boolean) => Promise<{ collapsed: boolean }>;
+  setHudMenu: (open: boolean) => Promise<{ open: boolean }>;
   hideHud: () => Promise<{ ok: boolean }>;
   showHud: () => Promise<{ ok: boolean }>;
   setFocusable: (on: boolean) => Promise<{ ok: boolean }>;
   moveHudBy: (dx: number, dy: number) => void;
   toggleInteract: () => Promise<{ clickThrough: boolean; session: boolean }>;
-  openHome: (hash?: string) => Promise<{ ok: boolean }>;
+  openHome: (hash?: string) => Promise<{ ok: boolean; open?: boolean }>;
+  closeHome: () => Promise<{ ok: boolean; open?: boolean }>;
   listDocuments: (token: string) => Promise<{
     latest?: Record<string, { id: string; kind: string; title: string; text: string; excerpt: string; chars: number; createdAt: string }>;
     recent?: unknown[];
@@ -75,6 +89,28 @@ export type CopilotBridge = {
     latest?: Record<string, { id: string; kind: string; title: string; text: string; excerpt: string; chars: number; createdAt: string }>;
     error?: string;
   }>;
+  listModes: (token: string) => Promise<AnswerModeList & { error?: string }>;
+  createMode: (
+    token: string,
+    body: { name?: string; instructions?: string },
+  ) => Promise<AnswerModeList & { error?: string }>;
+  updateMode: (
+    token: string,
+    id: string,
+    body: { name?: string; instructions?: string },
+  ) => Promise<AnswerModeList & { error?: string }>;
+  deleteMode: (token: string, id: string) => Promise<AnswerModeList & { error?: string }>;
+  selectMode: (token: string, id: string) => Promise<AnswerModeList & { error?: string }>;
+  addModeDocument: (
+    token: string,
+    id: string,
+    payload: { title?: string; text?: string; pdfBase64?: string },
+  ) => Promise<AnswerModeList & { error?: string }>;
+  deleteModeDocument: (
+    token: string,
+    id: string,
+    docId: string,
+  ) => Promise<AnswerModeList & { error?: string }>;
   getAccount: (token: string) => Promise<BillingAccount & { error?: string }>;
   billingCheckout: (token: string, planId: string) => Promise<{ url?: string; error?: string }>;
   billingActivate: (token: string, planId: string) => Promise<BillingAccount & { error?: string }>;
@@ -150,6 +186,7 @@ export type CopilotBridge = {
   }>;
   onScreenFrame: (cb: (event: ScreenFrame) => void) => () => void;
   onCollapsed: (cb: (collapsed: boolean) => void) => () => void;
+  onClosePops: (cb: () => void) => () => void;
   onPassThrough: (cb: (on: boolean) => void) => () => void;
   onToast: (cb: (text: string) => void) => () => void;
   onListenToggle: (cb: () => void) => () => void;
@@ -168,6 +205,9 @@ export type CopilotBridge = {
   }) => Promise<{ ok: boolean; error?: string; settings: AppSettings }>;
   resetShortcuts: () => Promise<{ ok: boolean; error?: string; settings: AppSettings }>;
   setSessionActive: (active: boolean) => Promise<{ settings: AppSettings }>;
+  quitApp: () => Promise<{ ok: boolean }>;
+  finishOnboard: () => Promise<{ ok: boolean }>;
+  onboardStatus: () => Promise<{ done: boolean }>;
   onSettingsChanged: (cb: (settings: AppSettings) => void) => () => void;
 };
 

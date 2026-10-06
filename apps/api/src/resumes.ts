@@ -19,6 +19,7 @@ import {
 } from "@meeting-copilot/orchestrator";
 import { resolveAi } from "./billing.js";
 import { beginStoryExtract, listStories } from "./stories.js";
+import { ensureGeneralMode, modeKnowledgeText } from "./modes.js";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text: string }>;
@@ -180,6 +181,23 @@ export async function saveResume(userId: string, rawText: string, title = "Resum
 }
 
 export async function getCandidateBrief(userId: string) {
+  await ensureGeneralMode(userId);
+  const { mode, knowledge } = await modeKnowledgeText(userId);
+  const isGeneral = !mode || mode.builtin || mode.slug === "general";
+
+  if (!isGeneral && mode) {
+    return {
+      job: { title: null, company: null, requirements: null },
+      stories: [],
+      knowledge,
+      brief: formatCandidateBrief({
+        modeName: mode.name,
+        modeInstructions: mode.instructions,
+        modeKnowledge: knowledge,
+      }),
+    };
+  }
+
   const result = await pool.query(
     `SELECT p.job_title, p.company, p.requirements, r.raw_text
      FROM user_profiles p
@@ -206,6 +224,7 @@ export async function getCandidateBrief(userId: string) {
   return {
     job,
     stories,
+    knowledge,
     brief: formatCandidateBrief({
       title: job.title,
       company: job.company,
@@ -214,6 +233,9 @@ export async function getCandidateBrief(userId: string) {
       jobPosting: extra.job ?? "",
       companyNotes: extra.company ?? "",
       storyCatalog: formatStoryCatalog(stories),
+      modeName: mode?.name,
+      modeInstructions: mode?.instructions,
+      modeKnowledge: knowledge,
     }),
   };
 }
@@ -223,6 +245,13 @@ export async function retrieveResumeContext(
   question: string,
   opts: { k?: number } = {},
 ) {
+  await ensureGeneralMode(userId);
+  const { mode } = await modeKnowledgeText(userId);
+  const isGeneral = !mode || mode.builtin || mode.slug === "general";
+  if (!isGeneral) {
+    return { job: { title: null, company: null, requirements: null }, context: "" };
+  }
+
   const profile = await pool.query(
     `SELECT active_resume_id, job_title, company, requirements
      FROM user_profiles WHERE user_id = $1`,
@@ -253,13 +282,13 @@ export async function retrieveResumeContext(
       : (JSON.parse(String(item.embedding || "[]")) as number[]),
   }));
   const ranked = query.length
-    ? rankChunks(query, mapped, opts.k ?? 2)
-    : mapped.slice(0, opts.k ?? 2).map((item) => ({ text: item.text, score: 1 }));
+    ? rankChunks(query, mapped, opts.k ?? 4)
+    : mapped.slice(0, opts.k ?? 4).map((item) => ({ text: item.text, score: 1 }));
   return {
     job,
     context: ranked
       .map((item) => item.text)
       .join("\n\n")
-      .slice(0, 500),
+      .slice(0, 1400),
   };
 }

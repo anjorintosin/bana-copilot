@@ -1,15 +1,17 @@
 {
   "name": "@meeting-copilot/desktop",
   "productName": "Bana Copilot",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Bana Copilot — interview overlay",
   "author": "Bana Copilot",
   "homepage": "https://github.com/anjorintosin/bana-copilot-releases",
   "main": "dist/main.js",
+  "desktopName": "bana-copilot.desktop",
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/dev.mjs",
+    "test": "tsx --test src/compat.test.ts src/renderer/hud/answer.test.ts src/renderer/hud/assistBuffer.test.ts",
     "pack": "node scripts/build.mjs && electron-builder --publish never",
     "release": "node scripts/build.mjs && electron-builder --publish always"
   },
@@ -21,6 +23,7 @@
     "electron": "^39.2.7",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.25.12",
+    "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   },
   "build": {
@@ -34,23 +37,45 @@
     },
     "publish": [],
     "generateUpdatesFilesForAllChannels": false,
+    "toolsets": {
+      "appimage": "1.0.2"
+    },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "identity": null,
+      "minimumSystemVersion": "12.0",
       "artifactName": "Bana.Copilot-${version}-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Bana Copilot uses the microphone to transcribe the conversation in real time.",
         "NSCameraUsageDescription": "Camera access is unused; this string is required by some capture prompts.",
-        "NSAudioCaptureUsageDescription": "Bana Copilot captures meeting audio you authorize."
+        "NSAudioCaptureUsageDescription": "Bana Copilot captures meeting audio you authorize.",
+        "NSScreenCaptureUsageDescription": "Bana Copilot captures stills of your screen when you ask it to look at a question on screen."
       }
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "Bana.Copilot-Setup-${version}.${ext}"
     },
@@ -61,12 +86,41 @@
     },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
-      "category": "Office",
+      "executableName": "bana-copilot",
+      "category": "Utility",
+      "synopsis": "Interview overlay",
       "maintainer": "Bana Copilot",
-      "artifactName": "Bana.Copilot-${version}-${arch}.${ext}"
+      "artifactName": "Bana.Copilot-${version}-${arch}.${ext}",
+      "desktop": {
+        "entry": {
+          "Name": "Bana Copilot",
+          "Comment": "Interview overlay",
+          "Categories": "Utility;",
+          "StartupWMClass": "bana-copilot"
+        }
+      }
     }
   }
 }

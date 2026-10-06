@@ -10,244 +10,149 @@
     <link rel="stylesheet" href="./home.css" />
   </head>
   <body>
-    <div class="app">
-      <aside>
-        <div class="brand">
-          <span class="mark"></span>
-          <div>
-            <strong>Bana Copilot</strong>
-            <small id="plan-chip">Free</small>
-          </div>
-        </div>
-        <nav>
-          <button type="button" class="nav-btn active" data-page="overview">Overview</button>
-          <button type="button" class="nav-btn" data-page="documents">Documents</button>
-          <button type="button" class="nav-btn" data-page="stories">Stories</button>
-          <button type="button" class="nav-btn" data-page="practice">Practice</button>
-          <button type="button" class="nav-btn" data-page="sessions">Sessions</button>
-          <button type="button" class="nav-btn" data-page="plan">Plan</button>
-          <button type="button" class="nav-btn" data-page="settings">Settings</button>
-        </nav>
-        <button type="button" class="start-btn" id="start-interview">Start interview</button>
-      </aside>
+    <div class="settings">
+      <nav class="tabs">
+        <button type="button" class="tab active" data-page="general" title="General">
+          <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+        <button type="button" class="tab" data-page="modes" title="Modes">
+          <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="4" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="14" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="14" width="6" height="6" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+        <button type="button" class="tab" data-page="shortcuts" title="Shortcuts">
+          <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 10h.01M11 10h6M7 14h.01M11 14h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" class="tab" data-page="history" title="History">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" class="tab" data-page="about" title="About">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </nav>
 
       <main>
-        <section class="page" id="page-overview">
-          <header class="page-head">
+        <section class="page" id="page-general">
+          <h1>General</h1>
+          <p class="hint">How Bana Copilot sits on your screen.</p>
+          <div class="row">
             <div>
-              <p class="eyebrow">Dashboard</p>
-              <h1>Home</h1>
-              <p class="lede" id="overview-lede">Add your model key on Plan, then Start interview to open the HUD.</p>
+              <strong>Undetectability</strong>
+              <span>Off means the HUD can show up in Zoom or Meet screen share.</span>
             </div>
-          </header>
-
-          <div class="grid">
-            <article class="card">
-              <h2>Role & industry</h2>
-              <p class="hint">Set this here. On the HUD, Auto infers the round; you can override.</p>
-              <input id="job-title" type="text" placeholder="Target job title" />
-              <input id="job-company" type="text" placeholder="Company" />
-              <textarea id="job-requirements" placeholder="What this role cares about"></textarea>
-              <label class="field">
-                <span>Industry / role type</span>
-                <select id="default-track"></select>
-              </label>
-              <div class="actions">
-                <button type="button" id="save-role">Save role</button>
-              </div>
-              <p class="status" id="role-status"></p>
-            </article>
-
-            <article class="card">
-              <h2>Ready for interview</h2>
-              <ul class="checklist" id="ready-list"></ul>
-              <p class="hint" id="resume-status">No resume yet.</p>
-              <p class="hint" id="story-status">No stories yet. Add a resume and we will extract them.</p>
-              <div class="actions stack">
-                <button type="button" class="ghost" data-go="documents">Manage documents</button>
-                <button type="button" class="ghost" data-go="stories">Edit stories</button>
-                <button type="button" class="ghost" data-go="practice">Practice this role</button>
-              </div>
-            </article>
-
-            <article class="card wide">
-              <h2>Recent sessions</h2>
-              <div id="overview-sessions" class="session-list">Loading…</div>
-            </article>
+            <input id="settings-share-visible" type="checkbox" />
           </div>
-        </section>
-
-        <section class="page" id="page-documents" hidden>
-          <header class="page-head">
+          <div class="row">
             <div>
-              <p class="eyebrow">Library</p>
-              <h1>Documents</h1>
-              <p class="lede">Resume is indexed. Job and company notes are folded into the candidate brief.</p>
+              <strong>Solid on hover</strong>
+              <span>Go opaque when the pointer is over the HUD.</span>
             </div>
-          </header>
-          <div class="kind-row" id="kind-row"></div>
-          <article class="card">
-            <p class="hint" id="doc-hint"></p>
-            <p class="status" id="doc-status"></p>
-            <input id="doc-title" type="text" placeholder="Title" />
-            <textarea id="doc-text" placeholder="Paste text, or choose a file"></textarea>
-            <div class="actions">
-              <label class="file-btn">
-                Choose file
-                <input id="doc-file" type="file" accept=".pdf,.txt,.md,.text,application/pdf" />
-              </label>
-              <button type="button" id="save-doc">Save document</button>
-            </div>
-          </article>
-        </section>
-
-        <section class="page" id="page-stories" hidden>
-          <header class="page-head">
-            <div>
-              <p class="eyebrow">Bank</p>
-              <h1>Stories</h1>
-              <p class="lede">
-                Live answers pick one of these cards. Edit the facts. Rebuild only if the resume changed.
-              </p>
-            </div>
-          </header>
-          <p class="status" id="stories-status"></p>
-          <div class="story-actions">
-            <button type="button" id="add-story">Add story</button>
-            <button type="button" class="ghost" id="rebuild-stories">Rebuild from resume</button>
+            <input id="settings-solid" type="checkbox" checked />
           </div>
-          <div id="story-list" class="story-list"></div>
+          <div class="row">
+            <div>
+              <strong>Opacity</strong>
+              <span id="settings-opacity-value">55%</span>
+            </div>
+            <input id="settings-opacity" type="range" min="28" max="92" value="55" />
+          </div>
+          <div class="actions">
+            <button type="button" class="ghost" id="quit-btn">Quit</button>
+          </div>
+          <h2 class="subhead">Model key</h2>
+          <p class="hint" id="key-hint">Required before Assist can answer.</p>
+          <label class="field">
+            <span>Provider</span>
+            <select id="key-provider">
+              <option value="openai">OpenAI</option>
+              <option value="claude">Claude</option>
+              <option value="grok">Grok (xAI)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>API key</span>
+            <input id="key-value" type="password" autocomplete="off" placeholder="sk-…, sk-ant-…, or xai-…" />
+          </label>
+          <div class="actions">
+            <button type="button" id="key-save">Save key</button>
+            <button type="button" class="ghost" id="key-clear">Remove key</button>
+          </div>
+          <p class="status" id="key-status"></p>
         </section>
 
-        <section class="page" id="page-practice" hidden>
-          <header class="page-head">
-            <div>
-              <p class="eyebrow">Rehearse</p>
-              <h1>Practice</h1>
-              <p class="lede" id="practice-lede">
-                Mock this role. Stories you rehearse here are the ones live answers prefer.
-              </p>
-            </div>
-          </header>
-          <article class="card" id="practice-setup">
-            <p class="hint" id="practice-meta">Load a role and stories first.</p>
-            <div class="actions">
-              <button type="button" id="practice-start">Start 15-minute drill</button>
-            </div>
-            <p class="status" id="practice-status"></p>
-          </article>
-          <article class="card practice-stage" id="practice-stage" hidden>
-            <p class="hint" id="practice-progress"></p>
-            <p class="kind" id="practice-kind"></p>
-            <p class="practice-q" id="practice-question"></p>
-            <p class="hint" id="practice-story"></p>
-            <div class="practice-answer" id="practice-answer">
-              Press Cue card when you want the ladder. Say it out loud first if you can.
-            </div>
-            <div class="story-card-actions">
-              <button type="button" id="practice-cue">Cue card</button>
-              <button type="button" class="ghost" id="practice-probe" hidden>If they push</button>
-              <button type="button" class="ghost" id="practice-next">Next</button>
-              <button type="button" class="ghost" id="practice-skip">Skip</button>
-            </div>
-          </article>
-          <article class="card" id="practice-done" hidden>
-            <h2>Drill done</h2>
-            <p class="hint" id="practice-summary"></p>
-            <div class="actions">
-              <button type="button" id="practice-again">Practice again</button>
-              <button type="button" class="ghost" id="practice-live">Start interview</button>
-            </div>
-          </article>
-        </section>
-
-        <section class="page" id="page-sessions" hidden>
-          <header class="page-head">
-            <div>
-              <p class="eyebrow">History</p>
-              <h1>Sessions</h1>
-              <p class="lede">Past interviews saved to this device.</p>
-            </div>
-          </header>
-          <article class="card">
-            <div id="session-table" class="session-list">Loading…</div>
-          </article>
-        </section>
-
-        <section class="page" id="page-plan" hidden>
-          <header class="page-head">
-            <div>
-              <p class="eyebrow">Account</p>
-              <h1>Plan</h1>
-              <p class="lede">
-                Add your own model key to try Bana Copilot. Hosted AI is paused while we test.
-              </p>
-            </div>
-          </header>
-          <div class="plan-grid" id="plan-grid"></div>
-        </section>
-
-        <section class="page" id="page-settings" hidden>
-          <header class="page-head">
-            <div>
-              <p class="eyebrow">Preferences</p>
-              <h1>Settings</h1>
-              <p class="lede">
-                HUD hide, collapse, and Home stay on. Listen, ask, screen, unlock clicks, and clear only bind while a session is running.
-              </p>
-            </div>
-          </header>
-          <article class="card">
-            <h2>Shortcuts</h2>
-            <p class="hint">Click a row, then press the new keys. Esc cancels.</p>
-            <div id="shortcut-list" class="shortcut-list"></div>
-            <div class="actions">
-              <button type="button" class="ghost" id="reset-shortcuts">Reset shortcuts</button>
-            </div>
-            <p class="status" id="shortcut-status"></p>
-          </article>
-          <article class="card">
-            <h2>Backend</h2>
-            <p class="hint">This copy of the app talks here. Leave localhost for a local API, or paste the EC2 URL after deploy.</p>
+        <section class="page" id="page-modes" hidden>
+          <h1>Modes</h1>
+          <p class="hint">How Assist should answer. Open a mode to see its instructions and files. General is built in.</p>
+          <div id="modes-cards" class="modes-cards"></div>
+          <div class="actions">
+            <button type="button" id="mode-new">New mode</button>
+          </div>
+          <div id="mode-editor" hidden>
             <label class="field">
-              <span>API URL</span>
-              <input id="api-url" type="url" placeholder="http://127.0.0.1:8787" />
+              <span>Name</span>
+              <input id="mode-name" type="text" maxlength="48" placeholder="Coding" />
+            </label>
+            <label class="field">
+              <span>Context</span>
+              <textarea id="mode-instructions" placeholder="How Assist should answer in this mode."></textarea>
             </label>
             <div class="actions">
-              <button type="button" id="save-api-url">Save and relaunch</button>
+              <button type="button" class="ghost" id="mode-coding-template">Use coding interview context</button>
             </div>
-            <p class="status" id="api-url-status"></p>
-          </article>
-          <article class="card">
-            <h2>HUD look</h2>
-            <p class="hint">How the overlay sits on the interview.</p>
-            <div class="look-list">
-              <div class="look-row">
-                <div class="copy">
-                  <strong>Opacity</strong>
-                  <span>How see-through the HUD is while you work.</span>
-                </div>
-                <div class="look-slider">
-                  <input id="settings-opacity" type="range" min="28" max="92" value="55" />
-                  <span id="settings-opacity-value">55%</span>
-                </div>
-              </div>
-              <label class="look-row">
-                <div class="copy">
-                  <strong>Solid on hover</strong>
-                  <span>Go opaque when the pointer is over the HUD.</span>
-                </div>
-                <input id="settings-solid" type="checkbox" checked />
-              </label>
-              <label class="look-row">
-                <div class="copy">
-                  <strong>Show on screen share</strong>
-                  <span>Leave off in interviews. Zoom and Meet will not see the overlay until you turn this on.</span>
-                </div>
-                <input id="settings-share-visible" type="checkbox" />
-              </label>
+            <p class="hint" id="mode-builtin-hint" hidden>General uses general knowledge. You can attach files; you cannot change how it answers.</p>
+            <div id="mode-docs" class="doc-list"></div>
+            <label class="field">
+              <span>Knowledge</span>
+              <textarea id="knowledge-text" placeholder="Paste notes, a job description, or anything this mode should know"></textarea>
+            </label>
+            <div class="actions">
+              <label class="file-btn">Add file<input id="knowledge-file" type="file" accept=".pdf,.txt,.md,.text,application/pdf" /></label>
+              <button type="button" id="knowledge-save">Add knowledge</button>
+              <button type="button" id="mode-save">Save mode</button>
+              <button type="button" class="ghost" id="mode-delete" hidden>Delete</button>
             </div>
-          </article>
+            <p class="status" id="knowledge-status">Documents are optional.</p>
+          </div>
+        </section>
+
+        <section class="page" id="page-shortcuts" hidden>
+          <h1>Shortcuts</h1>
+          <p class="hint">Click Change, then press the new keys. Esc cancels.</p>
+          <div id="shortcut-list" class="shortcut-list"></div>
+          <div class="actions">
+            <button type="button" class="ghost" id="reset-shortcuts">Reset shortcuts</button>
+          </div>
+          <p class="status" id="shortcut-status"></p>
+        </section>
+
+        <section class="page" id="page-history" hidden>
+          <h1>History</h1>
+          <p class="hint">Past sessions on this device.</p>
+          <div id="session-table" class="session-list">Loading…</div>
+        </section>
+
+        <section class="page" id="page-about" hidden>
+          <h1>About</h1>
+          <p class="hint">Bana Copilot is an overlay that sits on your screen during interviews. It listens when you ask it to, reads what’s on screen when you send it, and drafts what to say — it does not auto-answer.</p>
+          <p id="about-version">Desktop 0.1.2</p>
+          <h2 class="subhead">What you can do</h2>
+          <ul class="about-list">
+            <li><strong>Ask anything</strong> — type in the bar and press Enter. That’s normal chat: greetings, follow-ups, or a question you heard.</li>
+            <li><strong>Assist</strong> — the arrow next to the bar packs recent audio (and screen when you didn’t type) so it can draft an answer for the live interview.</li>
+            <li><strong>Start session</strong> — begins a timed session. Click again to end it and open History on that session.</li>
+            <li><strong>Mode</strong> — switch how Assist should answer, and attach resumes or notes. General is built in; create others for coding, behavioral, and so on.</li>
+            <li><strong>Visibility</strong> — keep the HUD off Zoom / Meet screen share. Turn that off in General if you want it visible.</li>
+            <li><strong>Solve what’s on screen</strong> — the screen icon captures the display and works the problem you can see (coding, prompts, docs).</li>
+            <li><strong>Settings</strong> — key, modes, shortcuts, and look.</li>
+            <li><strong>History</strong> — reopen past sessions without leaving the HUD.</li>
+          </ul>
+          <h2 class="subhead">How to use it</h2>
+          <ol class="about-list">
+            <li>Add your own model key on General (or during first-run setup). Assist cannot answer without it.</li>
+            <li>Optional: open Modes, attach a resume or job notes, and press Use on the mode you want.</li>
+            <li>Start a session from the HUD. Live shortcuts only work during a session.</li>
+            <li>When they ask, type it, press Assist, or tap Screen if the question is on the display.</li>
+            <li>Read the reply in the HUD. Copy with the icon under the bubble. Scroll down for the rest of a long answer.</li>
+            <li>The B mark collapses the HUD back to the short bar. Shortcuts are on the Shortcuts page if you want keys instead of clicks.</li>
+          </ol>
         </section>
       </main>
     </div>

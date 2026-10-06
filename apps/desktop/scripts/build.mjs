@@ -8,6 +8,8 @@ function copyStatic() {
   cpSync("src/renderer/audio/pcm-worklet.js", "dist/pcm-worklet.js");
   cpSync("src/home/home.html", "dist/home.html");
   cpSync("src/home/home.css", "dist/home.css");
+  cpSync("src/onboard/onboard.html", "dist/onboard.html");
+  cpSync("src/onboard/onboard.css", "dist/onboard.css");
 }
 
 export const configs = [
@@ -43,6 +45,14 @@ export const configs = [
     platform: "browser",
     format: "iife",
     outfile: "dist/home.js",
+    sourcemap: true,
+  },
+  {
+    entryPoints: ["src/onboard/onboard.ts"],
+    bundle: true,
+    platform: "browser",
+    format: "iife",
+    outfile: "dist/onboard.js",
     sourcemap: true,
   },
 ];

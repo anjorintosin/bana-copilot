@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { screenCaptureMode } from "../compat";
 
 const apiArg = process.argv.find((arg) => arg.startsWith("--copilot-api="));
 const httpArg = process.argv.find((arg) => arg.startsWith("--copilot-http="));
@@ -12,10 +13,13 @@ contextBridge.exposeInMainWorld("copilot", {
   httpUrl,
   packaged,
   platform: process.platform,
+  osVersion: process.getSystemVersion(),
+  screenMode: screenCaptureMode(process.platform, process.env),
   ensureAuth: () => ipcRenderer.invoke("auth:ensure"),
   listSessions: (token: string) => ipcRenderer.invoke("sessions:list", token),
   permissionInfo: () => ipcRenderer.invoke("permissions:info"),
   requestMic: () => ipcRenderer.invoke("permissions:mic"),
+  probeScreen: () => ipcRenderer.invoke("permissions:screen"),
   openMicSettings: () => ipcRenderer.invoke("permissions:open-mic-settings"),
   openScreenSettings: () => ipcRenderer.invoke("permissions:open-screen-settings"),
   listDisplays: () => ipcRenderer.invoke("permissions:info"),
@@ -27,15 +31,30 @@ contextBridge.exposeInMainWorld("copilot", {
   cycleDisplay: () => ipcRenderer.invoke("hud:cycle-display"),
   setCollapsed: (collapsed: boolean) =>
     ipcRenderer.invoke("hud:set-collapsed", collapsed),
+  setHudMenu: (open: boolean) => ipcRenderer.invoke("hud:set-menu", open),
   hideHud: () => ipcRenderer.invoke("hud:hide"),
   showHud: () => ipcRenderer.invoke("hud:show"),
   setFocusable: (on: boolean) => ipcRenderer.invoke("hud:set-focusable", on),
   moveHudBy: (dx: number, dy: number) => ipcRenderer.send("hud:move-by", dx, dy),
   toggleInteract: () => ipcRenderer.invoke("hud:toggle-interact"),
   openHome: (hash?: string) => ipcRenderer.invoke("home:open", hash),
+  closeHome: () => ipcRenderer.invoke("home:close"),
   listDocuments: (token: string) => ipcRenderer.invoke("documents:list", token),
   saveDocument: (token: string, payload: unknown) =>
     ipcRenderer.invoke("documents:save", token, payload),
+  listModes: (token: string) => ipcRenderer.invoke("modes:list", token),
+  createMode: (token: string, body: unknown) =>
+    ipcRenderer.invoke("modes:create", token, body),
+  updateMode: (token: string, id: string, body: unknown) =>
+    ipcRenderer.invoke("modes:update", token, id, body),
+  deleteMode: (token: string, id: string) =>
+    ipcRenderer.invoke("modes:delete", token, id),
+  selectMode: (token: string, id: string) =>
+    ipcRenderer.invoke("modes:select", token, id),
+  addModeDocument: (token: string, id: string, body: unknown) =>
+    ipcRenderer.invoke("modes:add-doc", token, id, body),
+  deleteModeDocument: (token: string, id: string, docId: string) =>
+    ipcRenderer.invoke("modes:delete-doc", token, id, docId),
   getAccount: (token: string) => ipcRenderer.invoke("account:get", token),
   billingCheckout: (token: string, planId: string) =>
     ipcRenderer.invoke("billing:checkout", token, planId),
@@ -69,6 +88,9 @@ contextBridge.exposeInMainWorld("copilot", {
   resetShortcuts: () => ipcRenderer.invoke("settings:reset-shortcuts"),
   setSessionActive: (active: boolean) =>
     ipcRenderer.invoke("settings:session-active", active),
+  quitApp: () => ipcRenderer.invoke("app:quit"),
+  finishOnboard: () => ipcRenderer.invoke("onboard:finish"),
+  onboardStatus: () => ipcRenderer.invoke("onboard:status"),
   onScreenFrame: (cb: (event: unknown) => void) => {
     const listener = (_e: unknown, payload: unknown) => cb(payload);
     ipcRenderer.on("capture:frame", listener);
@@ -78,6 +100,11 @@ contextBridge.exposeInMainWorld("copilot", {
     const listener = (_e: unknown, payload: boolean) => cb(payload);
     ipcRenderer.on("hud:collapsed", listener);
     return () => ipcRenderer.removeListener("hud:collapsed", listener);
+  },
+  onClosePops: (cb: () => void) => {
+    const listener = () => cb();
+    ipcRenderer.on("hud:close-pops", listener);
+    return () => ipcRenderer.removeListener("hud:close-pops", listener);
   },
   onPassThrough: (cb: (on: boolean) => void) => {
     const listener = (_e: unknown, payload: boolean) => cb(payload);

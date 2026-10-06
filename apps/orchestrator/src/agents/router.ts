@@ -37,6 +37,20 @@ export function scoreSpecialists(text: string, allowed: SpecialistId[]) {
     );
 }
 
+const LANGUAGE = String.raw`(js|javascript|ts|typescript|python|py|java|kotlin|swift|go|golang|rust|ruby|php|scala|c|c\+\+|cpp|c#|csharp|sql|bash)`;
+const FOLLOW_UP = [
+  new RegExp(String.raw`^(now |and |ok |okay |can you |could you |please )*(do it |write it |redo it |rewrite it |same |convert it |translate it |show it )?(in|using|with|to) ${LANGUAGE}\b`, "i"),
+  new RegExp(String.raw`^${LANGUAGE}( please| version)?[?.!]*$`, "i"),
+  /^(more|more again|again|continue|go on|keep going|expand|elaborate|why|how so|example|an example|go deeper|deeper|simpler|shorter|tell me more|say more|explain (that|it|more|again)|what about (that|it)|and then)\b/i,
+];
+
+/** Short replies that continue the previous answer ("in js", "more", "why") rather than ask something new. */
+export function isFollowUp(text: string) {
+  const t = text.trim();
+  if (!t || t.split(/\s+/).length > 7) return false;
+  return FOLLOW_UP.some((re) => re.test(t));
+}
+
 /**
  * Picks the specialist for a question. A model hint wins when it is allowed in
  * this track; otherwise keyword signals decide, then the track fallback.
