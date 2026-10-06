@@ -37,6 +37,7 @@
     },
     "publish": [],
     "generateUpdatesFilesForAllChannels": false,
+    "afterPack": "scripts/sign-mac.cjs",
     "toolsets": {
       "appimage": "1.0.2"
     },
