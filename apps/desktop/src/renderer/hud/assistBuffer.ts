@@ -41,6 +41,14 @@ export function screenLooksRelevant(text: string) {
   return SCREENISH.test(text);
 }
 
+const SCREEN_REQUEST =
+  /\b(screen|on here|this (question|problem|code|error|task|one|exercise)|solve (this|it))\b/i;
+
+/** Typed asks that need the screenshot sent with them. */
+export function asksAboutScreen(text: string) {
+  return SCREEN_REQUEST.test(text) || SCREENISH.test(text);
+}
+
 function prune(now: number) {
   const cut = now - CAP_MS;
   while (segs[0] && segs[0].at < cut) segs.shift();

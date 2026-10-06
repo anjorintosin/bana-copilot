@@ -33,6 +33,14 @@ const BUTTONS: Record<
   },
 };
 
+const SCREEN_REQUEST =
+  /\b(screen|on here|this (question|problem|code|error|task|one|exercise)|solve (this|it))\b/i;
+
+/** Typed asks like "solve the question on my screen" should be answered from the screenshot. */
+export function refersToScreen(text: string) {
+  return SCREEN_REQUEST.test(text);
+}
+
 export function assistPrompt(
   action: AssistAction,
   typed: string | undefined,

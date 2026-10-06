@@ -33,6 +33,7 @@ import { connectGateway, send, sendAssist, sendConfig, sendPcm } from "./hud/soc
 import { loadAppearance, state } from "./hud/state";
 import { answerPlainText } from "./hud/answer";
 import {
+  asksAboutScreen,
   clearAssistBuffer,
   markAssistAnswered,
   pushScreenFrame,
@@ -294,7 +295,13 @@ async function triggerAssist() {
 
   if (typed) {
     $.askInput.value = "";
-    void requestAssist("ask", typed, { transcript: pack.transcript });
+    const typedShot = screenAllowed() && asksAboutScreen(typed) ? await grabShot() : null;
+    const typedImage = typedShot?.ok && typedShot.jpegBase64 ? typedShot.jpegBase64 : undefined;
+    if (typedImage && typedShot) {
+      $.shotPreview.src = typedShot.dataUrl || "";
+      $.shotChip.hidden = false;
+    }
+    void requestAssist("ask", typed, { transcript: pack.transcript, jpegBase64: typedImage });
     return;
   }
 
