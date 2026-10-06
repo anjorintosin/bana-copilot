@@ -13,6 +13,9 @@ import {
 } from "../claims.js";
 import { classifyIntent, inferStage, isShallowProbe } from "../intent.js";
 import { buildPracticePlan } from "../practice.js";
+import { extractStack, formatGroundTruth } from "../facts.js";
+import { mergeScreenPacket } from "../screenPacket.js";
+import { formatCandidateBrief } from "../llm/prompts.js";
 import { FIXTURES, type ReplayCase } from "./fixtures.js";
 
 function checkStoryPick() {
@@ -139,6 +142,74 @@ function checkStoryPick() {
   }
   if (!claims.numbers.some((n) => /week/i.test(n))) {
     throw new Error(`claims numbers ${claims.numbers.join(",")}`);
+  }
+}
+
+function checkFacts() {
+  const resume = `
+Jane Doe
+Skills: TypeScript, React, Node.js, Electron, PostgreSQL
+Experience
+Built a payments dashboard in TypeScript and React. Shipped an Electron desktop overlay.
+`;
+  const job = "We want a full-stack engineer strong in TypeScript and React.";
+  const stack = extractStack(`${resume}\n${job}`);
+  if (!stack.includes("TypeScript") || !stack.includes("React") || !stack.includes("Electron")) {
+    throw new Error(`stack missed TS/React/Electron: ${stack.join(",")}`);
+  }
+  if (stack.includes("Java")) {
+    throw new Error("JavaScript/TypeScript resume must not count as Java");
+  }
+  const truth = formatGroundTruth({ resume, job });
+  if (!truth.doNotInvent.includes("Java") || !truth.doNotInvent.includes("Python")) {
+    throw new Error(`should forbid invented langs: ${truth.doNotInvent.join(",")}`);
+  }
+  const brief = formatCandidateBrief({
+    title: "Frontend engineer",
+    resumeExcerpt: resume,
+    jobPosting: job,
+  });
+  if (!brief.includes("TypeScript") || !brief.includes("Do not mention or claim: Java")) {
+    throw new Error("brief must lock stack and forbid Java");
+  }
+  if (brief.includes("No resume on file")) {
+    throw new Error("resume was dropped from the brief");
+  }
+}
+
+function checkScreenPacket() {
+  const first = mergeScreenPacket(undefined, {
+    kind: "docs",
+    title: "Case",
+    language: "",
+    signature: "",
+    ocrText: "A shop sells tea.",
+    problem: "A shop sells tea.",
+    passage: "A shop sells tea and coffee to office workers in London.",
+    questions: [],
+    partial: true,
+    needsHelp: true,
+    confidence: 0.8,
+  });
+  if (first.fresh.length) throw new Error("statement-only shot should not invent questions");
+  const second = mergeScreenPacket(first.packet, {
+    kind: "docs",
+    title: "Case",
+    language: "",
+    signature: "",
+    ocrText: "1. Why tea. 2. How to price.",
+    problem: "1. Why tea. 2. How to price.",
+    passage: "",
+    questions: ["Why do office workers buy tea?", "How would you price a bundle?"],
+    partial: true,
+    needsHelp: true,
+    confidence: 0.8,
+  });
+  if (!second.packet.passage.includes("shop sells tea")) {
+    throw new Error("scrolled shot must keep the statement");
+  }
+  if (second.fresh.length !== 2) {
+    throw new Error(`expected 2 new questions, got ${second.fresh.length}`);
   }
 }
 
@@ -444,6 +515,8 @@ function printTable(rows: CaseResult[]) {
 
 async function main() {
   checkStoryPick();
+  checkFacts();
+  checkScreenPacket();
   checkIntent();
   loadEnv();
   const live = process.argv.includes("--live");

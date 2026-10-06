@@ -19,6 +19,9 @@ const CANDIDATE_NARRATE =
 const CHITCHAT =
   /\b(can you hear me|how are you|what's up|good morning|good afternoon|good evening|nice to meet you|thanks|thank you|okay cool|alright|sounds good|you're on mute)\b/i;
 
+const GREETING =
+  /^(helo+|h+e+l+l+o+|hey+|hi+|yo+|sup|hiya|howdy)([!.\s]*)?$/i;
+
 /** Soft check-ins that end with ? but are not interview questions. */
 const CHECK_IN =
   /\b(is everything (all )?(right|ok|okay|good)|are you (all )?(good|ok|okay|ready|there|with me)|you (all )?(good|ok|okay)|all (good|set|right)|take your time|no rush|whenever you('re| are) ready|you can take your time|am i audible|can you see (me|my|the|this)|what if that helps)\b/i;
@@ -39,8 +42,19 @@ export function isNoiseTranscript(text: string) {
 export function isCheckIn(text: string) {
   const t = text.trim();
   if (!t) return false;
+  if (isThinAsk(t)) return true;
   if (CHECK_IN.test(t) && !hasInterviewSubstance(t)) return true;
   if (CHITCHAT.test(t) && !hasInterviewSubstance(t)) return true;
+  return false;
+}
+
+/** Typed junk that is not an interview question (hello, helo, hi, ok). */
+export function isThinAsk(text: string) {
+  const t = text.trim();
+  if (!t) return true;
+  if (GREETING.test(t)) return true;
+  if (/^(test|ok(ay)?|thanks?|thank you|please|hmm+|uh+|um+|yo)\.?$/i.test(t)) return true;
+  if (t.length < 8 && !t.includes("?")) return true;
   return false;
 }
 

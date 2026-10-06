@@ -13,6 +13,8 @@ cpSync("src/renderer/styles.css", "dist/styles.css");
 cpSync("src/renderer/audio/pcm-worklet.js", "dist/pcm-worklet.js");
 cpSync("src/home/home.html", "dist/home.html");
 cpSync("src/home/home.css", "dist/home.css");
+cpSync("src/onboard/onboard.html", "dist/onboard.html");
+cpSync("src/onboard/onboard.css", "dist/onboard.css");
 
 const contexts = await Promise.all(configs.map((c) => esbuild.context(c)));
 await Promise.all(contexts.map((ctx) => ctx.rebuild()));

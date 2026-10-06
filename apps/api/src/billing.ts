@@ -2,13 +2,13 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import Stripe from "stripe";
 import {
   allowlist,
-  sanitizeHttpUrl,
   sanitizeSecret,
   type AccountPlan,
   type BillingAccount,
   type BillingPlan,
 } from "@meeting-copilot/types";
 import { pool } from "./db.js";
+import { verifyModelKey } from "@meeting-copilot/orchestrator";
 
 const SEED: {
   id: string;
@@ -42,7 +42,7 @@ const SEED: {
     features: [
       "Interview HUD and story bank",
       "You pay your model provider directly",
-      "OpenAI, Claude, Groq, or any compatible endpoint",
+      "Claude, Grok, or OpenAI",
       "Lower monthly price",
     ],
     ordinal: 1,
@@ -53,7 +53,7 @@ export type AiCreds = {
   apiKey: string;
   baseURL?: string;
   source: "hosted" | "byok" | "env";
-  provider?: "openai" | "claude" | "groq" | "compatible";
+  provider?: "openai" | "claude" | "grok";
 };
 
 export type AiResolve =
@@ -370,14 +370,18 @@ export async function saveUserModelKey(
   const apiKey = sanitizeSecret(input.apiKey);
   let provider = allowlist(
     input.provider || "openai",
-    ["openai", "claude", "groq", "compatible", "anthropic"] as const,
+    ["openai", "claude", "grok", "anthropic", "xai"] as const,
     "openai",
   );
   if (apiKey.startsWith("sk-ant-") || provider === "anthropic") provider = "claude";
-  let baseUrl = input.baseUrl ? sanitizeHttpUrl(input.baseUrl) : "";
-  if (provider === "groq") baseUrl = baseUrl || "https://api.groq.com/openai/v1";
-  if (provider === "claude") baseUrl = baseUrl || "https://api.anthropic.com";
-  if (provider === "openai") baseUrl = "";
+  if (apiKey.startsWith("xai-") || provider === "xai") provider = "grok";
+  const baseUrl =
+    provider === "grok"
+      ? "https://api.x.ai/v1"
+      : provider === "claude"
+        ? "https://api.anthropic.com"
+        : "";
+  await verifyModelKey({ apiKey, baseURL: baseUrl || undefined, provider });
   const packed = encryptSecret(apiKey);
   const last4 = apiKey.slice(-4);
   await pool.query(
@@ -423,11 +427,25 @@ async function loadUserKey(userId: string): Promise<AiCreds | null> {
       tag: row.llm_key_tag,
     });
     const provider = (row.llm_provider as AiCreds["provider"]) || undefined;
+    const inferred =
+      apiKey.startsWith("sk-ant-")
+        ? "claude"
+        : apiKey.startsWith("xai-")
+          ? "grok"
+          : provider === "grok" || provider === "claude"
+            ? provider
+            : "openai";
+    const baseURL =
+      inferred === "grok"
+        ? "https://api.x.ai/v1"
+        : inferred === "claude"
+          ? "https://api.anthropic.com"
+          : undefined;
     return {
       apiKey,
-      baseURL: row.llm_base_url || undefined,
+      baseURL,
       source: "byok",
-      provider: apiKey.startsWith("sk-ant-") ? "claude" : provider,
+      provider: inferred,
     };
   } catch {
     return null;
@@ -446,7 +464,11 @@ export async function resolveAi(userId: string): Promise<AiResolve> {
       creds: {
         apiKey: envKey,
         source: "env",
-        provider: envKey.startsWith("sk-ant-") ? "claude" : "openai",
+        provider: envKey.startsWith("sk-ant-")
+          ? "claude"
+          : envKey.startsWith("xai-")
+            ? "grok"
+            : "openai",
       },
     };
   }

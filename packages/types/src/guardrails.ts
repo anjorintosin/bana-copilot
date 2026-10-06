@@ -14,10 +14,12 @@ export const LIMITS = {
   transcript: 8_000,
   appName: 80,
   deviceId: 80,
-  apiKey: 256,
+  apiKey: 512,
   url: 200,
   priorTurns: 8,
   imageChars: 2_800_000,
+  modeName: 48,
+  modeInstructions: 4_000,
 } as const;
 
 export class GuardError extends Error {
@@ -63,7 +65,10 @@ export function sanitizeLine(raw: unknown, max?: number): string {
 
 export function sanitizeSecret(raw: unknown): string {
   if (typeof raw !== "string") return "";
-  const key = raw.normalize("NFC").replace(/\s+/g, "").replace(INVISIBLE, "");
+  let key = raw.normalize("NFC").replace(/\s+/g, "").replace(INVISIBLE, "");
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1);
+  }
   if (!key) return "";
   if (key.length < 8 || key.length > LIMITS.apiKey) {
     throw new GuardError("That key is the wrong length.");

@@ -138,3 +138,35 @@ ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS llm_key_iv text;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS llm_key_tag text;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS llm_base_url text;
 ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS llm_key_last4 text;
+
+CREATE TABLE IF NOT EXISTS answer_modes (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  slug text NOT NULL DEFAULT '',
+  name text NOT NULL,
+  instructions text NOT NULL DEFAULT '',
+  builtin boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS answer_modes_user_slug_idx
+  ON answer_modes (user_id, slug)
+  WHERE slug <> '';
+
+CREATE INDEX IF NOT EXISTS answer_modes_user_idx
+  ON answer_modes (user_id, builtin DESC, created_at ASC);
+
+ALTER TABLE user_profiles
+  ADD COLUMN IF NOT EXISTS active_mode_id uuid REFERENCES answer_modes(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS mode_documents (
+  id uuid PRIMARY KEY,
+  mode_id uuid NOT NULL REFERENCES answer_modes(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  raw_text text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS mode_documents_mode_idx
+  ON mode_documents (mode_id, created_at DESC);

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; connect-src 'self' http: https: ws: wss:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>Bana Copilot</title>
+    <link rel="stylesheet" href="./onboard.css" />
+  </head>
+  <body>
+    <div class="wizard">
+      <section class="step" id="step-key">
+        <h1>Let's get you set up</h1>
+        <p class="lede">Add your model key. Assist uses this to answer.</p>
+        <label class="field">
+          <span>Provider</span>
+          <select id="key-provider">
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+            <option value="grok">Grok (xAI)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>API key</span>
+          <input id="key-value" type="password" autocomplete="off" placeholder="Paste your key" />
+        </label>
+        <p class="status" id="key-status"></p>
+        <button type="button" class="primary" id="key-continue">Continue</button>
+      </section>
+
+      <section class="step" id="step-knowledge" hidden>
+        <h1>Add knowledge</h1>
+        <p class="lede">Optional. Attaches to General — notes, a resume, a job post, anything Assist should know.</p>
+        <textarea id="knowledge-text" placeholder="Paste text, or add a file"></textarea>
+        <div class="actions">
+          <label class="file-btn">Add file<input id="knowledge-file" type="file" accept=".pdf,.txt,.md,.text,application/pdf" /></label>
+        </div>
+        <p class="status" id="knowledge-status"></p>
+        <div class="actions">
+          <button type="button" class="ghost" id="knowledge-skip">Skip</button>
+          <button type="button" class="primary" id="knowledge-continue">Continue</button>
+        </div>
+      </section>
+
+      <section class="step" id="step-perms" hidden>
+        <h1>Shortcuts and access</h1>
+        <p class="lede" id="perms-lede">Allow microphone, screen, and meeting audio when prompted.</p>
+        <div class="perm-row">
+          <div>
+            <strong>Assist</strong>
+            <span id="assist-hint">Press <kbd id="assist-chord">⌘↩</kbd> now to confirm.</span>
+          </div>
+          <span class="perm-badge" id="assist-badge">Waiting</span>
+        </div>
+        <div class="perm-row">
+          <div>
+            <strong>Microphone</strong>
+            <span id="audio-hint">Listen uses your mic when you ask it to.</span>
+          </div>
+          <div class="perm-actions">
+            <span class="perm-badge" id="audio-badge">—</span>
+            <button type="button" class="ghost perm-btn" id="audio-check">Allow</button>
+          </div>
+        </div>
+        <div class="perm-row">
+          <div>
+            <strong>Screen</strong>
+            <span id="screen-hint">Assist can see what’s on your display.</span>
+          </div>
+          <div class="perm-actions">
+            <span class="perm-badge" id="screen-badge">—</span>
+            <button type="button" class="ghost perm-btn" id="screen-check">Allow</button>
+          </div>
+        </div>
+        <div class="perm-row" id="loopback-row">
+          <div>
+            <strong>Meeting audio</strong>
+            <span id="loopback-hint">Zoom, Meet, and Teams — not your microphone.</span>
+          </div>
+          <div class="perm-actions">
+            <span class="perm-badge" id="loopback-badge">—</span>
+            <button type="button" class="ghost perm-btn" id="loopback-check">Allow</button>
+          </div>
+        </div>
+        <p class="status" id="perm-status"></p>
+        <button type="button" class="primary" id="perms-continue">Continue</button>
+      </section>
+
+      <section class="step" id="step-done" hidden>
+        <div class="done">
+          <span class="check">✓</span>
+          <h1>All set</h1>
+          <p class="lede">The HUD is ready. Ask anything, or press Assist.</p>
+        </div>
+        <button type="button" class="primary" id="done-continue">Continue</button>
+      </section>
+    </div>
+    <script src="./onboard.js"></script>
+  </body>
+</html>

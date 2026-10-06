@@ -1,5 +1,5 @@
 import type { CaptureHandle, CaptureSource } from "../audio/capture";
-import type { InterviewStageId, InterviewTrackId, ListenMode } from "@meeting-copilot/types";
+import type { AnswerMode, InterviewStageId, InterviewTrackId, ListenMode } from "@meeting-copilot/types";
 import { DEFAULT_SHORTCUTS, type ShortcutId } from "../../settings";
 
 export type Turn = {
@@ -9,6 +9,7 @@ export type Turn = {
   transcript: string;
   answer: string;
   done: boolean;
+  flag?: "invented" | "contradicts";
 };
 
 export const state = {
@@ -44,6 +45,8 @@ export const state = {
   clock: 0,
   turns: [] as Turn[],
   busy: false,
+  modes: [] as AnswerMode[],
+  activeModeId: "",
 };
 
 export function viewingLive() {

@@ -43,7 +43,7 @@ export function isFollowUpQuestion(question: string) {
   const t = question.trim();
   if (!t || NEW_STORY.test(t)) return false;
   if (
-    /^(why|how come|what about|and then|so what|tell me more|go on|who was|which one|can you (expand|say more|go deeper)|what (failed|breaks|happens)|walk me through that|why that|why not)\b/i.test(
+    /^(why|how come|what about|and then|so what|tell me more|go on|expand( more)?|who was|which one|can you (expand|say more|go deeper)|what (failed|breaks|happens)|walk me through that|why that|why not)\b/i.test(
       t,
     )
   ) {

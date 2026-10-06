@@ -122,3 +122,19 @@ export function attachShortcutHandlers(next: ShortcutHandlers) {
   handlers = next;
   return applyShortcuts();
 }
+
+function onboardFile() {
+  return path.join(app.getPath("userData"), "onboard.json");
+}
+
+export function isOnboarded() {
+  try {
+    return JSON.parse(fs.readFileSync(onboardFile(), "utf8")).done === true;
+  } catch {
+    return false;
+  }
+}
+
+export function markOnboarded() {
+  fs.writeFileSync(onboardFile(), JSON.stringify({ done: true }));
+}

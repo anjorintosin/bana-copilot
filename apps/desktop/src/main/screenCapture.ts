@@ -10,9 +10,9 @@ export type ScreenChange = {
 };
 
 const CAPTURE_MS = 500;
-const DIFF_THRESHOLD = 0.08;
-const HIRES_MS = 7_000;
-const BIG_CHANGE = 0.25;
+const DIFF_THRESHOLD = 0.035;
+const HIRES_MS = 1_600;
+const BIG_CHANGE = 0.12;
 const HUD_SETTLE_MS = 800;
 
 let timer: NodeJS.Timeout | null = null;
@@ -151,8 +151,7 @@ export function startScreenWatch(
       }
 
       const now = Date.now();
-      const wantStill =
-        ratio >= BIG_CHANGE || now - lastHiresAt >= HIRES_MS || lastHiresAt === 0;
+      const wantStill = true;
       let jpegBase64: string | undefined;
       if (wantStill) {
         lastHiresAt = now;
@@ -184,7 +183,7 @@ export function startScreenWatch(
 export async function grabScreenshot() {
   const sources = await desktopCapturer.getSources({
     types: ["screen"],
-    thumbnailSize: { width: 1920, height: 1080 },
+    thumbnailSize: { width: 1280, height: 720 },
   });
   const primary = sources[0];
   if (!primary) return null;
@@ -192,9 +191,9 @@ export async function grabScreenshot() {
     name: primary.name,
     dataUrl: primary.thumbnail.toDataURL(),
     jpegBase64: jpegPayload(primary.thumbnail, {
-      quality: 76,
-      maxBytes: 900_000,
-      maxWidth: 1600,
+      quality: 62,
+      maxBytes: 220_000,
+      maxWidth: 1280,
     }),
   };
 }

@@ -1,4 +1,5 @@
 import "./env.js";
+import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
@@ -34,6 +35,15 @@ import {
 } from "./resumes.js";
 import { listDocuments, saveDocument } from "./documents.js";
 import {
+  addModeDocument,
+  createMode,
+  deleteMode,
+  deleteModeDocument,
+  listModes,
+  selectMode,
+  updateMode,
+} from "./modes.js";
+import {
   activateLocally,
   billingCompleteHtml,
   clearUserModelKey,
@@ -58,6 +68,7 @@ import {
   clearSessionMemory,
   commitListening,
   configureSession,
+  hydrateSessionProfile,
   handleAssistRequest,
   handleScreenFrame,
   pushAudioFrame,
@@ -174,6 +185,95 @@ app.post("/documents", async (req, reply) => {
   } catch (err) {
     return reply.code(400).send({
       error: err instanceof Error ? err.message : "Could not save document",
+    });
+  }
+});
+
+app.get("/modes", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  return listModes(user.userId);
+});
+
+app.post("/modes", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  if (writeLimited(reply, user.userId)) return;
+  const body = req.body as { name?: string; instructions?: string };
+  try {
+    return await createMode(user.userId, body);
+  } catch (err) {
+    return reply.code(400).send({
+      error: err instanceof Error ? err.message : "Could not create mode",
+    });
+  }
+});
+
+app.put("/modes/:id", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  if (writeLimited(reply, user.userId)) return;
+  const { id } = req.params as { id: string };
+  const body = req.body as { name?: string; instructions?: string };
+  try {
+    return await updateMode(user.userId, id, body);
+  } catch (err) {
+    return reply.code(400).send({
+      error: err instanceof Error ? err.message : "Could not update mode",
+    });
+  }
+});
+
+app.delete("/modes/:id", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  const { id } = req.params as { id: string };
+  try {
+    return await deleteMode(user.userId, id);
+  } catch (err) {
+    return reply.code(400).send({
+      error: err instanceof Error ? err.message : "Could not delete mode",
+    });
+  }
+});
+
+app.post("/modes/:id/select", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  const { id } = req.params as { id: string };
+  try {
+    return await selectMode(user.userId, id);
+  } catch (err) {
+    return reply.code(400).send({
+      error: err instanceof Error ? err.message : "Could not switch mode",
+    });
+  }
+});
+
+app.post("/modes/:id/documents", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  if (writeLimited(reply, user.userId)) return;
+  const { id } = req.params as { id: string };
+  const body = req.body as { title?: string; text?: string; pdfBase64?: string };
+  try {
+    return await addModeDocument(user.userId, id, body);
+  } catch (err) {
+    return reply.code(400).send({
+      error: err instanceof Error ? err.message : "Could not add knowledge",
+    });
+  }
+});
+
+app.delete("/modes/:id/documents/:docId", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  const { id, docId } = req.params as { id: string; docId: string };
+  try {
+    return await deleteModeDocument(user.userId, id, docId);
+  } catch (err) {
+    return reply.code(400).send({
+      error: err instanceof Error ? err.message : "Could not remove file",
     });
   }
 });
@@ -385,9 +485,20 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
   // frames (PCM16/24kHz audio) are routed to whichever session was last
   // armed with "listen.start" — they carry no JSON envelope of their own.
   let activeListenSessionId = "";
+  // Assist outside a session runs on this in-memory scratchpad: nothing is saved.
+  const scratchId = `scratch-${randomUUID()}`;
+  const ownedSessions = new Set<string>();
+  let saveQueue: Promise<unknown> = Promise.resolve();
+  if (user) {
+    const userId = user.userId;
+    void getCandidateBrief(userId)
+      .then((loaded) => hydrateSessionProfile(scratchId, loaded))
+      .catch(() => undefined);
+  }
 
   socket.on("close", () => {
     if (activeListenSessionId) stopListening(activeListenSessionId);
+    clearSessionMemory(scratchId);
   });
 
   socket.on("message", async (raw: unknown, isBinary?: boolean) => {
@@ -442,6 +553,11 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           stage: event.stage,
           listenMode: event.listenMode,
         });
+        try {
+          hydrateSessionProfile(sessionId, await getCandidateBrief(user.userId));
+        } catch {
+          /* answers still load the brief on the first question */
+        }
         send(socket, { type: "session.ready", sessionId });
         return;
       }
@@ -456,10 +572,8 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           });
           return;
         }
-        const summary = await buildSessionSummary(event.sessionId);
-        await saveSessionSummary(event.sessionId, summary);
-        await saveTranscript(event.sessionId, "session.summary", summary);
-        const ok = await endSession(event.sessionId, user.userId);
+        const endedId = event.sessionId;
+        const ok = await endSession(endedId, user.userId);
         if (!ok) {
           send(socket, {
             type: "session.error",
@@ -468,19 +582,31 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           });
           return;
         }
-        if (activeListenSessionId === event.sessionId) activeListenSessionId = "";
-        clearSessionMemory(event.sessionId);
-        send(socket, {
-          type: "session.summary",
-          sessionId: event.sessionId,
-          text: summary,
-        });
-        send(socket, { type: "session.ended", sessionId: event.sessionId });
+        if (activeListenSessionId === endedId) activeListenSessionId = "";
+        send(socket, { type: "session.ended", sessionId: endedId });
+        // The recap is an LLM call; write it after the HUD has already ended the session.
+        void (async () => {
+          try {
+            const summary = await buildSessionSummary(endedId);
+            await saveSessionSummary(endedId, summary);
+            await saveTranscript(endedId, "session.summary", summary).catch(() => undefined);
+            send(socket, { type: "session.summary", sessionId: endedId, text: summary });
+          } catch (err) {
+            app.log.warn({ err, sessionId: endedId }, "session recap failed");
+          } finally {
+            clearSessionMemory(endedId);
+          }
+        })();
         return;
       }
 
-      const sessionId =
-        "sessionId" in event ? event.sessionId : undefined;
+      const givenId = "sessionId" in event ? event.sessionId : undefined;
+      const scratch =
+        !givenId &&
+        (event.type === "assist.request" ||
+          event.type === "session.config" ||
+          event.type === "context.clear");
+      const sessionId = givenId || (scratch ? scratchId : undefined);
       if (!sessionId) {
         send(socket, {
           type: "session.error",
@@ -490,14 +616,17 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
         return;
       }
 
-      const owns = await assertSessionOwner(sessionId, user.userId);
-      if (!owns) {
-        send(socket, {
-          type: "session.error",
-          code: "forbidden",
-          message: "Session does not belong to this device",
-        });
-        return;
+      if (!scratch && !ownedSessions.has(sessionId)) {
+        const owns = await assertSessionOwner(sessionId, user.userId);
+        if (!owns) {
+          send(socket, {
+            type: "session.error",
+            code: "forbidden",
+            message: "Session does not belong to this device",
+          });
+          return;
+        }
+        ownedSessions.add(sessionId);
       }
 
       if (event.type === "meeting.app") {
@@ -510,7 +639,13 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           track: event.track,
           stage: event.stage,
           listenMode: event.listenMode,
+          modeId: event.modeId,
         });
+        if (event.modeId) {
+          const loaded = await getCandidateBrief(user.userId);
+          hydrateSessionProfile(sessionId, loaded);
+          if (sessionId !== scratchId) hydrateSessionProfile(scratchId, loaded);
+        }
         return;
       }
 
@@ -521,12 +656,18 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
             aiEvent.type === "question.detected" ||
             aiEvent.type === "answer.completed" ||
             aiEvent.type === "summary.rolling") &&
-          typeof aiEvent.text === "string"
+          typeof aiEvent.text === "string" &&
+          !scratch
         ) {
-          await saveTranscript(sessionId, String(aiEvent.type), aiEvent.text, {
-            questionId: aiEvent.questionId,
-            kind: aiEvent.kind,
-          });
+          const text = aiEvent.text;
+          saveQueue = saveQueue
+            .then(() =>
+              saveTranscript(sessionId, String(aiEvent.type), text, {
+                questionId: aiEvent.questionId,
+                kind: aiEvent.kind,
+              }),
+            )
+            .catch((err) => app.log.warn({ err, sessionId }, "transcript save failed"));
         }
         send(socket, aiEvent as ServerEvent);
       };
@@ -536,7 +677,7 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
               apiKey: string;
               baseURL?: string;
               source: "hosted" | "byok" | "env";
-              provider?: "openai" | "claude" | "groq" | "compatible";
+              provider?: "openai" | "claude" | "grok";
             }
           | undefined,
         resumeContext: (question: string, opts?: { k?: number }) =>
@@ -594,7 +735,9 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           {
             action: event.action,
             text: event.text,
+            transcript: event.transcript,
             imageBase64: event.imageBase64,
+            images: event.images,
             mimeType: event.mimeType,
             smart: event.smart,
           },

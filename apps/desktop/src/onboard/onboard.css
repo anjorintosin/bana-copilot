@@ -1,0 +1,213 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #121214;
+  color: #f4f4f5;
+}
+
+.wizard {
+  padding: 28px 32px 28px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+html[data-platform="darwin"] .wizard {
+  padding-top: 52px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  letter-spacing: -0.04em;
+}
+
+.lede,
+.status,
+.perm-row span,
+.field span {
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.lede {
+  margin: 0 0 22px;
+}
+
+.field {
+  display: block;
+  margin: 0 0 12px;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 6px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #1c1c22;
+  color: #f4f4f5;
+  font: inherit;
+}
+
+textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.perm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.perm-row strong {
+  display: block;
+  font-size: 14px;
+}
+
+.perm-row kbd {
+  display: inline;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: #27272a;
+  color: #f4f4f5;
+  font: inherit;
+  font-weight: 650;
+}
+
+.perm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.perm-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #27272a;
+  color: #a1a1aa;
+  white-space: nowrap;
+}
+
+.perm-badge.ok {
+  background: rgba(22, 163, 74, 0.18);
+  color: #4ade80;
+}
+
+.perm-badge.wait {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+.perm-badge.bad {
+  background: rgba(220, 38, 38, 0.16);
+  color: #fca5a5;
+}
+
+.perm-btn {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+button,
+.file-btn {
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.primary {
+  margin-top: auto;
+  width: 100%;
+  background: #3b82f6;
+  color: #fff;
+}
+
+.ghost,
+.file-btn {
+  background: #27272a;
+  color: #e4e4e7;
+}
+
+.file-btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+}
+
+.file-btn input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.done {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.check {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 24px;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.step[hidden],
+.perm-row[hidden] {
+  display: none;
+}

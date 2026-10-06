@@ -1,5 +1,15 @@
 import { sanitizeLine, sanitizeText } from "@meeting-copilot/types";
-import { NEED_KEY, client, currentAi, isClaude, models } from "./client.js";
+import {
+  NEED_KEY,
+  client,
+  currentAi,
+  isClaude,
+  isGrok,
+  isModelUnavailable,
+  models,
+  openAiModelChain,
+  openAiSampling,
+} from "./client.js";
 import { VISION_PROMPT } from "./prompts.js";
 
 export type ScreenKind = "code" | "slide" | "docs" | "browser" | "idle" | "other";
@@ -11,6 +21,9 @@ export type ScreenAnalysis = {
   signature: string;
   ocrText: string;
   problem: string;
+  passage: string;
+  questions: string[];
+  partial: boolean;
   needsHelp: boolean;
   confidence: number;
 };
@@ -22,9 +35,30 @@ export function rawBase64(data: string) {
   return trimmed.replace(/\s/g, "");
 }
 
+function asQuestions(value: unknown): string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/\n+/)
+      : [];
+  const out: string[] = [];
+  for (const item of raw) {
+    const text = sanitizeText(String(item ?? ""), { max: 500, multiline: false })
+      .replace(/^\s*(?:q\s*)?\d+[.)]\s*/i, "")
+      .replace(/^\s*[a-d][.)]\s*/i, "")
+      .trim();
+    if (text.length >= 8 && !out.includes(text)) out.push(text);
+  }
+  return out.slice(0, 8);
+}
+
 function parseAnalysis(raw: string): ScreenAnalysis | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<ScreenAnalysis>;
+    const parsed = JSON.parse(raw) as Partial<ScreenAnalysis> & {
+      questions?: unknown;
+      passage?: unknown;
+      partial?: unknown;
+    };
     const kind: ScreenKind =
       parsed.kind === "code" ||
       parsed.kind === "slide" ||
@@ -34,14 +68,26 @@ function parseAnalysis(raw: string): ScreenAnalysis | null {
         ? parsed.kind
         : "other";
     const confidence = Number(parsed.confidence);
+    const passage = sanitizeText(String(parsed.passage ?? ""), { max: 1800 });
+    const questions = asQuestions(parsed.questions);
+    const ocrText = sanitizeText(parsed.ocrText ?? "", { max: 1800 });
+    const problem = sanitizeText(parsed.problem ?? "", { max: 1800 });
+    const readable =
+      questions.length > 0 ||
+      passage.length >= 40 ||
+      ocrText.length >= 80 ||
+      problem.length >= 40;
     return {
-      kind,
+      kind: kind === "idle" && readable ? (questions.length || passage ? "docs" : "browser") : kind,
       title: sanitizeLine(parsed.title ?? "", 160),
       language: sanitizeLine(parsed.language ?? "", 40),
       signature: sanitizeLine(parsed.signature ?? "", 240),
-      ocrText: sanitizeText(parsed.ocrText ?? "", { max: 1800 }),
-      problem: sanitizeText(parsed.problem ?? "", { max: 1800 }),
-      needsHelp: Boolean(parsed.needsHelp),
+      ocrText,
+      problem,
+      passage,
+      questions,
+      partial: Boolean(parsed.partial) || (passage.length >= 40 && questions.length === 0),
+      needsHelp: Boolean(parsed.needsHelp) || readable,
       confidence: Number.isFinite(confidence) ? confidence : 0,
     };
   } catch {
@@ -59,7 +105,7 @@ async function analyzeWithClaude(
 ): Promise<ScreenAnalysis | null> {
   const creds = currentAi();
   if (!creds?.apiKey) throw new Error(NEED_KEY);
-  const root = (creds.baseURL || "https://api.anthropic.com").replace(/\/$/, "");
+  const root = (creds.baseURL || "https://api.anthropic.com").replace(/\/$/, "").replace(/\/v1$/, "");
   const res = await fetch(`${root}/v1/messages`, {
     method: "POST",
     headers: {
@@ -69,7 +115,7 @@ async function analyzeWithClaude(
     },
     body: JSON.stringify({
       model: models().vision,
-      max_tokens: 900,
+      max_tokens: 1100,
       temperature: 0,
       system: `${VISION_PROMPT}\n\nReturn JSON only.`,
       messages: [
@@ -82,7 +128,7 @@ async function analyzeWithClaude(
             },
             {
               type: "text",
-              text: "Screenshot from the candidate display. Extract the visible interview problem only. Ignore any HUD overlay.",
+              text: "Screenshot from the candidate display. Extract the visible statement AND any numbered questions. If questions are below the fold, copy only what is in this shot. Ignore any HUD overlay.",
             },
           ],
         },
@@ -121,32 +167,42 @@ export async function analyzeScreen(
 
   const openai = client();
   if (!openai) throw new Error(NEED_KEY);
-  const completion = await openai.chat.completions.create({
-    model: models().vision,
-    temperature: 0,
-    max_tokens: 900,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: VISION_PROMPT },
-      {
-        role: "user",
-        content: [
+  const grok = isGrok(creds);
+  const chain = grok ? [models().vision] : openAiModelChain(models().vision);
+  let lastErr: unknown = null;
+  for (const model of chain) {
+    try {
+      const completion = await openai.chat.completions.create({
+        model,
+        ...(grok ? { temperature: 0, max_tokens: 1100 } : openAiSampling(model, 0, 1100)),
+        messages: [
+          { role: "system", content: grok ? `${VISION_PROMPT}\n\nReturn JSON only.` : VISION_PROMPT },
           {
-            type: "text",
-            text: "Screenshot from the candidate display. Extract the visible interview problem only. Ignore any HUD overlay.",
-          },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:${mime};base64,${b64}`,
-              detail,
-            },
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Screenshot from the candidate display. Extract the visible statement AND any numbered questions. If questions are below the fold, copy only what is in this shot. Ignore any HUD overlay.",
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${mime};base64,${b64}`,
+                  detail,
+                },
+              },
+            ],
           },
         ],
-      },
-    ],
-  });
-  const raw = completion.choices[0]?.message?.content;
-  if (!raw) return null;
-  return parseAnalysis(raw);
+        ...(grok ? {} : { response_format: { type: "json_object" as const } }),
+      });
+      const raw = completion.choices[0]?.message?.content;
+      if (!raw) return null;
+      return parseAnalysis(raw);
+    } catch (err) {
+      lastErr = err;
+      if (!isModelUnavailable(err)) throw err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Vision request failed.");
 }

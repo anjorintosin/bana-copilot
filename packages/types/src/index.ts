@@ -6,6 +6,33 @@ export type JobContext = {
 
 export type DocumentKind = "resume" | "job" | "company" | "notes";
 
+export const GENERAL_MODE_SLUG = "general";
+export const GENERAL_MODE_INSTRUCTIONS =
+  "Answer with general knowledge. Use attached knowledge files when they fit. Do not invent employers, tools, or facts that are not in those files.";
+
+export type ModeDocument = {
+  id: string;
+  title: string;
+  excerpt: string;
+  chars: number;
+  createdAt: string;
+};
+
+export type AnswerMode = {
+  id: string;
+  slug: string;
+  name: string;
+  instructions: string;
+  builtin: boolean;
+  documentCount: number;
+  documents?: ModeDocument[];
+};
+
+export type AnswerModeList = {
+  modes: AnswerMode[];
+  activeModeId: string;
+};
+
 export const DOCUMENT_KINDS: { id: DocumentKind; label: string; hint: string }[] = [
   { id: "resume", label: "Resume", hint: "Your experience — we extract stories you can edit" },
   { id: "job", label: "Job posting", hint: "The role you are interviewing for" },
@@ -222,10 +249,12 @@ export type ClientEvent =
   | { type: "meeting.ended"; sessionId: string }
   | {
       type: "session.config";
-      sessionId: string;
+      /** Omitted outside a session: applies to the connection's Assist scratchpad. */
+      sessionId?: string;
       track?: InterviewTrackId;
       stage?: InterviewStageId;
       listenMode?: ListenMode;
+      modeId?: string;
     }
   | {
       type: "audio.utterance";
@@ -254,14 +283,17 @@ export type ClientEvent =
     }
   | {
       type: "assist.request";
-      sessionId: string;
+      /** Omitted outside a session: Assist runs on the connection's unsaved scratchpad. */
+      sessionId?: string;
       action: AssistAction;
       text?: string;
       imageBase64?: string;
       mimeType?: string;
+      transcript?: string;
+      images?: { imageBase64: string; mimeType?: string }[];
       smart?: boolean;
     }
-  | { type: "context.clear"; sessionId: string }
+  | { type: "context.clear"; sessionId?: string }
   | {
       type: "transcript.partial";
       sessionId: string;
@@ -306,9 +338,16 @@ export type ServerEvent =
       text: string;
       source: "audio" | "screen" | "assist";
     }
+  | { type: "question.updated"; questionId: string; text: string }
   | { type: "answer.started"; questionId: string }
   | { type: "answer.delta"; questionId: string; text: string }
   | { type: "answer.completed"; questionId: string; text?: string }
+  | {
+      type: "answer.flag";
+      questionId: string;
+      kind: "invented" | "contradicts";
+      confidence: number;
+    }
   | { type: "answer.cancelled"; questionId: string }
   | {
       type: "screen.insight";

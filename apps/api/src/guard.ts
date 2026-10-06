@@ -93,6 +93,7 @@ export function sanitizeClientEvent(event: ClientEvent): ClientEvent {
       ...event,
       track: event.track ? sanitizeTrack(event.track) : undefined,
       stage: sanitizeStage(event.stage),
+      modeId: optionalUuid(event.modeId, "mode"),
     };
   }
   if (event.type === "listen.start") {
@@ -112,13 +113,33 @@ export function sanitizeClientEvent(event: ClientEvent): ClientEvent {
       typeof event.imageBase64 === "string" && event.imageBase64.length > LIMITS.imageChars
         ? undefined
         : event.imageBase64;
+    const images = Array.isArray(event.images)
+      ? event.images
+          .slice(0, 4)
+          .map((item) => {
+            const imageBase64 =
+              typeof item?.imageBase64 === "string" && item.imageBase64.length <= LIMITS.imageChars
+                ? item.imageBase64
+                : undefined;
+            if (!imageBase64) return null;
+            return {
+              imageBase64,
+              mimeType: sanitizeLine(item.mimeType ?? "", 80) || "image/jpeg",
+            };
+          })
+          .filter((item): item is { imageBase64: string; mimeType: string } => Boolean(item))
+      : undefined;
     return {
       ...event,
       action,
       text: event.text
         ? sanitizeText(event.text, { max: LIMITS.question })
         : undefined,
+      transcript: event.transcript
+        ? sanitizeText(event.transcript, { max: LIMITS.transcript })
+        : undefined,
       imageBase64: image,
+      images,
       mimeType: sanitizeLine(event.mimeType ?? "", 80) || undefined,
     };
   }

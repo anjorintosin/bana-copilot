@@ -41,7 +41,7 @@ export const STAGES: Record<InterviewStageId, Stage> = {
     boost: ["technical"],
     fallback: "technical",
     style:
-      "This is a technical-depth round. Reason from a real system: when you'd pick each option, and a footgun. Skip STAR stories unless they asked for one.",
+      "This is a technical-depth round scored like an AI interviewer. Every topic needs a mechanism, a named default you'd ship, the alternative, a failure, and a metric or test. Skip STAR stories unless they asked for one.",
   },
   coding: {
     id: "coding",
@@ -49,7 +49,7 @@ export const STAGES: Record<InterviewStageId, Stage> = {
     boost: ["coding"],
     fallback: "coding",
     style:
-      "This is a live coding round. Speak a short approach, then a complete fenced solution. Mention complexity. Do not give a career story.",
+      "This is a live coding round. Approach + Big-O, then a complete fenced solution that does not mutate inputs. Types and a one-line docstring. Name one failing input and the return. Do not give a career story.",
   },
   system_design: {
     id: "system_design",
@@ -57,7 +57,7 @@ export const STAGES: Record<InterviewStageId, Stage> = {
     boost: ["system_design"],
     fallback: "system_design",
     style:
-      "This is a system-design round. Whiteboard judgment: scale, data path, the choice you'd ship, the failure you'd watch. No textbook definitions, no code unless they asked for an API sketch.",
+      "This is a system-design round scored like an AI interviewer. Assumed QPS, write API, storage key, the named choice you'd ship, the failure metric. State stays on the request when it can. No textbook definitions.",
   },
   case: {
     id: "case",

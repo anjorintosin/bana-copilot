@@ -1,10 +1,11 @@
 import { parseLadder } from "@meeting-copilot/types";
 import { SPECIALISTS, type Specialist, type SpecialistId } from "./agents/specialists.js";
-import { models, pickAnswerModel } from "./llm/client.js";
+import { models, pickAnswerModel, type ReasoningEffort } from "./llm/client.js";
 import { completeChat, streamChat, type ChatImage } from "./llm/chat.js";
 import { getStage } from "./agents/stages.js";
 import { intentGuidance, type InterviewerIntent } from "./intent.js";
 import { CLASSIFY_PROMPT, buildCachedSystemPrompt } from "./llm/prompts.js";
+import { pickKnowledge } from "./modeKnowledge.js";
 
 export type InterviewKind = "behavioral" | "coding" | "system_design" | "other";
 
@@ -29,11 +30,30 @@ export function spokenBody(text: string) {
   return [ladder.say, ladder.push].filter(Boolean).join("\n\n").trim() || toSpoken(text);
 }
 
+const QUANT = /\b(probability|probabilit|expected (number|value)|odds|how many (ways|times)|combinations?|permutations?|puzzle|riddle|prove|solve for|integral|derivative|modulo|remainder|average speed|percent(age)? (of|change))\b/i;
+
+function heavyEffort(): ReasoningEffort {
+  const set = process.env.ANSWER_HEAVY_EFFORT;
+  return set === "medium" || set === "none" ? set : "low";
+}
+
+/** Algorithms, math, and logic get the smart model with more reasoning; everything else stays fast. */
+export function needsDeepReasoning(specialist: Specialist, text: string) {
+  return specialist.id === "coding" || QUANT.test(text);
+}
+
 export function resolveSpecialist(id: string): Specialist {
   return SPECIALISTS[id as SpecialistId] ?? SPECIALISTS.general;
 }
 
-const RAG_AGENTS = new Set<string>(["behavioral", "motivation"]);
+const RAG_AGENTS = new Set<string>([
+  "behavioral",
+  "motivation",
+  "technical",
+  "system_design",
+  "general",
+  "product",
+]);
 
 export function specialistNeedsRag(id: string) {
   return RAG_AGENTS.has(id);
@@ -91,10 +111,20 @@ export async function* streamAnswer(input: {
   smart?: boolean;
   image?: ChatImage;
   groundToScreen?: boolean;
+  maxTokens?: number;
+  knowledge?: string[];
 }): AsyncGenerator<string, AnswerTelemetry> {
   const specialist = input.specialist;
+  const excerpt = pickKnowledge(
+    input.knowledge ?? [],
+    `${input.question}\n${input.screenContext ?? ""}`,
+  );
+  const knowledgeBlock = excerpt
+    ? `\nFrom their mode's knowledge files (ground truth for whatever they cover; combine with your own expertise for the rest; ignore parts unrelated to the question):\n${excerpt}\n`
+    : "";
+  const heavy = needsDeepReasoning(specialist, `${input.question}\n${input.groundToScreen ? input.screenContext ?? "" : ""}`);
   const model = pickAnswerModel({
-    smart: input.smart,
+    smart: input.smart || heavy,
     writesCode: specialist.writesCode,
   });
   const started = Date.now();
@@ -120,22 +150,14 @@ export async function* streamAnswer(input: {
         .join("\n\n");
 
   const user = input.groundToScreen
-    ? `This is a solve-on-screen turn. A screenshot is attached — that image is the only question.
-Solve ONLY the problem visible in the image. The extract below may be incomplete; if it disagrees with the image, trust the image.
-Use the exact programming language in the editor, starter code, or language dropdown. Never switch languages. Never default to Python unless the screen is Python.
-Do not reuse a previous interview question. Do not invent a similar LeetCode problem.
-If you cannot read the problem, say that in SAY. Do not guess.
+    ? `Screen turn: a screenshot is attached, and this is the text read from it.
 
 Screen extract:
-${(input.screenContext || "(none)").slice(0, 1800)}
-
+${(input.screenContext || "(none)").slice(0, 2400)}
+${input.rollingSummary ? `\nInterview so far:\n${input.rollingSummary.slice(0, 400)}\n` : ""}${knowledgeBlock}
 They asked:
-${input.question}
-
-Use the ${specialist.label} style. Gist, then SAY, PUSH, TRAP.`
-    : `Specialist: ${specialist.label}
-Interview stage: ${getStage(input.stage).label}
-Stage guidance: ${getStage(input.stage).style}
+${input.question}`
+    : `Interview stage: ${getStage(input.stage).label}. ${getStage(input.stage).style}
 
 Recent Q&A:
 ${prior || "(none)"}
@@ -149,23 +171,23 @@ ${(input.ragContext || "(none)").slice(0, 700)}
 Interview so far:
 ${(input.rollingSummary || "(just started)").slice(0, 400)}
 
-Claims already said (reuse these; do not invent a new employer, metric, or story):
+Claims already said:
 ${(input.claims || "(none)").slice(0, 400)}
-
-They just asked:
-${input.question}
-
+${knowledgeBlock}${input.image ? "\nA screenshot of their display is attached. If they typed a real question, answer it and use the screenshot as context. If they typed a greeting or nothing useful, answer the question on the screenshot.\n" : ""}
 ${intentGuidance(input.intent)}
 
-Use the ${specialist.label} style. Gist, then SAY, PUSH, TRAP.`;
+They just asked:
+${input.question}`;
 
   const stream = streamChat({
-    system: buildCachedSystemPrompt(input.track, input.brief ?? ""),
+    system: buildCachedSystemPrompt(input.track, input.brief ?? "", specialist.id),
     user,
     model,
     temperature: specialist.temperature,
-    maxTokens: specialist.maxTokens,
+    maxTokens: input.maxTokens ?? specialist.maxTokens,
     image: input.image,
+    reasoningEffort: heavy ? heavyEffort() : "low",
+    verbosity: "low",
   });
   let next = await stream.next();
   while (!next.done) {

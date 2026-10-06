@@ -65,12 +65,12 @@ const HINT =
 const WRAP =
   /\b(any questions for (me|us)|that's all (i had|for today|from me)|we'll be in touch|next steps|thanks for (your )?time|wrapping up)\b/i;
 
-/** One-breath probes that already have an If-they-push line on the card. */
+/** One-breath probes that should continue the last answer. */
 export function isShallowProbe(text: string) {
   const t = text.trim();
   if (!t) return false;
   if (
-    /^(why(\s+that)?\??$|tell me more\.?$|go on\.?$|and then\??$|go deeper\.?$|can you expand\??$|say more\.?$|what do you mean\??$)$/i.test(
+    /^(why(\s+that)?\??$|tell me more\.?$|go on\.?$|and then\??$|go deeper\.?$|can you expand(\s+more)?\??$|expand( more)?\.?$|say more\.?$|what do you mean\??$)$/i.test(
       t,
     )
   ) {
@@ -118,10 +118,10 @@ export function effectiveStage(
 
 export function intentGuidance(intent?: InterviewerIntent) {
   if (intent === "feedback") {
-    return "They said the last answer was shallow or textbook. Do not repeat the definition. SAY this turn is the missing trade-off (cursor vs OFFSET, failure, 10x). Then a deeper PUSH. Stay in the same story and claims.";
+    return "They said the last answer was shallow or textbook. Do not repeat the definition. Write a complete new answer for THIS topic that adds what was missing: a concrete default with values, how it works underneath, a failure case, or how to measure or test it. Stay in the same story and claims. Plain sentences, no labels.";
   }
   if (intent === "probe") {
-    return "Follow-up probe. They already heard the first breath. Do not restart or restate. SAY is the previous PUSH: trade-off, cursor vs offset, failure. Then write a new PUSH one layer deeper.";
+    return "Follow-up probe (expand / tell me more / why). They already heard the first answer. Do not restart or restate. Stay on the same topic and language they named — JavaScript stays JavaScript, not TypeScript. Go one layer deeper: how it works underneath, a concrete default, a failure case, or how to test it. If they asked for a language or for code, give the code. Plain sentences, no labels.";
   }
   if (intent === "wrap") {
     return "They are closing. Questions for them, a tight recap, or next steps. No new coding problem.";
