@@ -36,6 +36,28 @@ jobs:
       - name: Install Linux pack tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg
+      - name: Load Mac signing certificate
+        if: runner.os == 'macOS'
+        env:
+          P12: ${{ secrets.MAC_SIGNING_P12 }}
+          P12_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$P12" ] || [ -z "$P12_PASSWORD" ]; then
+            echo "Add MAC_SIGNING_P12 and MAC_SIGNING_PASSWORD so Mac permissions survive updates."
+            exit 1
+          fi
+          keychain="$RUNNER_TEMP/bana-signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/bana-signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/bana-signing.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          rm -f "$RUNNER_TEMP/bana-signing.p12"
+          echo "BANA_MAC_SIGN_IDENTITY=Bana Copilot Signing" >> "$GITHUB_ENV"
+          echo "BANA_MAC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - name: Pack desktop
         working-directory: apps/desktop
         shell: bash
@@ -62,6 +84,15 @@ jobs:
           fi
           echo "Installers ready (electron-builder exit $status):"
           ls -lah "${files[@]}"
+      - name: Check Mac signature
+        if: runner.os == 'macOS'
+        working-directory: apps/desktop/release
+        run: |
+          set -euo pipefail
+          for app in mac/"Bana Copilot.app" mac-arm64/"Bana Copilot.app"; do
+            codesign --verify --deep --strict "$app"
+            codesign -d -r- "$app" 2>&1 | grep 'identifier "com.banacopilot.desktop" and certificate leaf'
+          done
       - name: Smoke Linux binaries
         if: runner.os == 'Linux'
         working-directory: apps/desktop/release
