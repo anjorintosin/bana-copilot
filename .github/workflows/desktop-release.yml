@@ -108,3 +108,32 @@ jobs:
             apps/desktop/release/Bana.Copilot*.AppImage
             apps/desktop/release/Bana.Copilot*.deb
             apps/desktop/release/Bana.Copilot*.tar.gz
+  publish:
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      RELEASES_REPO: anjorintosin/bana-copilot-releases
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-installers
+          merge-multiple: true
+      - name: Publish installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "Add the RELEASES_TOKEN secret to publish."; exit 1; }
+          notes="docs/releases/$TAG.md"
+          test -f "$notes" || { echo "Missing $notes"; exit 1; }
+          ls -lah dist-installers
+          if gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$RELEASES_REPO" --title "Bana Copilot ${TAG#v}" --notes-file "$notes"
+            gh release upload "$TAG" dist-installers/* --repo "$RELEASES_REPO" --clobber
+          else
+            gh release create "$TAG" dist-installers/* --repo "$RELEASES_REPO" --title "Bana Copilot ${TAG#v}" --notes-file "$notes" --latest
+          fi
