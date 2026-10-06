@@ -127,14 +127,16 @@ function onboardFile() {
   return path.join(app.getPath("userData"), "onboard.json");
 }
 
+/** Each newly downloaded version starts at onboarding once, so permissions get rechecked. */
 export function isOnboarded() {
   try {
-    return JSON.parse(fs.readFileSync(onboardFile(), "utf8")).done === true;
+    const saved = JSON.parse(fs.readFileSync(onboardFile(), "utf8"));
+    return saved.done === true && saved.version === app.getVersion();
   } catch {
     return false;
   }
 }
 
 export function markOnboarded() {
-  fs.writeFileSync(onboardFile(), JSON.stringify({ done: true }));
+  fs.writeFileSync(onboardFile(), JSON.stringify({ done: true, version: app.getVersion() }));
 }

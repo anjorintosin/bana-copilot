@@ -56,7 +56,13 @@ jobs:
           security import "$RUNNER_TEMP/bana-signing.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
           rm -f "$RUNNER_TEMP/bana-signing.p12"
-          echo "BANA_MAC_SIGN_IDENTITY=Bana Copilot Signing" >> "$GITHUB_ENV"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-certificate -c "Bana Copilot Signing" -p "$keychain" > "$RUNNER_TEMP/bana-signing.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/bana-signing.pem"
+          security find-identity -p codesigning "$keychain"
+          fingerprint=$(security find-identity -p codesigning "$keychain" | awk '/Bana Copilot Signing/{print $2; exit}')
+          test -n "$fingerprint"
+          echo "BANA_MAC_SIGN_IDENTITY=$fingerprint" >> "$GITHUB_ENV"
           echo "BANA_MAC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - name: Pack desktop
         working-directory: apps/desktop
