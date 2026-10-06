@@ -80,7 +80,7 @@ jobs:
           test ${#tar_arm[@]} -eq 1
           test -f Bana.Copilot*-x64.tar.gz
           chmod +x "${appimage[0]}"
-          "${appimage[0]}" --appimage-extract
+          "./${appimage[0]}" --appimage-extract >/dev/null
           binary=$(find squashfs-root -type f -name bana-copilot | head -n 1)
           test -n "$binary"
           test -x "$binary"
