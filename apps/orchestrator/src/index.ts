@@ -49,7 +49,7 @@ import {
   isShallowProbe,
   type InterviewerIntent,
 } from "./intent.js";
-import { assistPrompt } from "./actions.js";
+import { assistPrompt, refersToScreen } from "./actions.js";
 import {
   emptyClaims,
   formatClaims,
@@ -980,6 +980,7 @@ async function solveFromScreenshot(
   extras?: AnswerExtras,
   source: "screen" | "assist" = "assist",
   conversation = "",
+  typedAsk = "",
 ) {
   const state = mem(sessionId);
 
@@ -1009,8 +1010,8 @@ async function solveFromScreenshot(
         imageBase64: image,
         mimeType,
         groundToScreen: true,
-        displayText: "What's on screen",
-        questionTitle,
+        displayText: typedAsk || "What's on screen",
+        questionTitle: typedAsk ? undefined : questionTitle,
       },
     );
     return;
@@ -1242,7 +1243,12 @@ export async function handleAssistRequest(
 
   const typed = input.text ? sanitizeText(input.text, { max: LIMITS.question }) : "";
   const conversation = packed || state.recent.slice(-8).join(" ").trim();
-  const solveScreen = input.action === "screen" || (input.action === "assist" && !typed && Boolean(latestImage));
+  const sentImage = input.images?.[input.images.length - 1]?.imageBase64 || input.imageBase64;
+  const typedAboutScreen = Boolean(typed && sentImage && refersToScreen(typed));
+  const solveScreen =
+    input.action === "screen" ||
+    (input.action === "assist" && !typed && Boolean(latestImage)) ||
+    typedAboutScreen;
   if (solveScreen) {
     if (!latestImage) {
       await emit({
@@ -1259,7 +1265,8 @@ export async function handleAssistRequest(
       emit,
       extras,
       "assist",
-      conversation,
+      typedAboutScreen ? [conversation, typed].filter(Boolean).join("\n") : conversation,
+      typedAboutScreen ? typed : "",
     );
     return;
   }
@@ -1274,7 +1281,7 @@ export async function handleAssistRequest(
     return;
   }
 
-  const useScreen = input.action !== "ask" && Boolean(latestImage);
+  const useScreen = Boolean(latestImage) && (input.action !== "ask" || Boolean(sentImage));
   const question = conversation && conversation !== built.text
     ? `${built.text}\n\nRecent conversation (oldest first):\n${conversation.slice(-2400)}`
     : built.text;

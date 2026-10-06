@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import {
+  asksAboutScreen,
   clearAssistBuffer,
   isQuestionLike,
   markAssistAnswered,
@@ -49,6 +50,21 @@ test("a later question replaces the one already answered", () => {
     sliceAssistWindow(start + 17_000).question,
     "Thanks, tell me about a time you disagreed with your manager.",
   );
+});
+
+test("typed asks about the screen send a screenshot", () => {
+  for (const typed of [
+    "solve the question on my screen",
+    "Solve this",
+    "what does this error mean",
+    "answer this question",
+    "fix the code",
+  ]) {
+    assert.ok(asksAboutScreen(typed), typed);
+  }
+  for (const typed of ["what is a hash map", "tell me about yourself"]) {
+    assert.ok(!asksAboutScreen(typed), typed);
+  }
 });
 
 test("short follow-ups count as questions", () => {

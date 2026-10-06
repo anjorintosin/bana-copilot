@@ -7,7 +7,7 @@ on:
     inputs:
       tag:
         description: Public release tag to attach installers to
-        default: v0.1.3
+        default: v0.1.4
 jobs:
   pack:
     strategy:
