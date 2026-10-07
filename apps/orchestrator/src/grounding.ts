@@ -65,19 +65,17 @@ const ANSWER_CHARS = 6000;
 const SENTENCES_PER_CALL = 12;
 const MAX_REPLACEMENT_WORDS = 40;
 
-/** Plain sentences from the part of the answer the HUD shows: no TRAP, code, list markers, or markdown emphasis. */
+/**
+ * Sentences from the part of the answer the HUD shows (no TRAP, code blocks, or list markers).
+ * Inline markdown stays so the HUD can render each sentence exactly as it renders the answer.
+ */
 export function answerSentences(answer: string) {
   return spokenAnswer(answer)
     .slice(0, ANSWER_CHARS)
     .replace(/```[\s\S]*?(```|$)/g, "\n")
     .split("\n")
-    .map((line) =>
-      line
-        .replace(/^\s*(#{1,6}\s+|[-*•]\s+|\d+[.)]\s+)/, "")
-        .replace(/\*\*|__|`/g, "")
-        .trim(),
-    )
-    .flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/))
+    .map((line) => line.replace(/^\s*(#{1,6}\s+|[-*•]\s+|\d+[.)]\s+)/, "").trim())
+    .flatMap((line) => line.split(/(?<=[.!?](?:\*\*|`)?)\s+(?=[A-Z0-9"“(*`])/))
     .map((sentence) => sentence.trim())
     .filter((sentence) => sentence.split(/\s+/).length >= 4);
 }
