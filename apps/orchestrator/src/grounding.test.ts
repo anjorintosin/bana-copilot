@@ -32,20 +32,21 @@ test("threshold is configurable", () => {
   assert.equal(flagFromScores({ invented: 0.62, contradicts: 0 }), null);
 });
 
-test("sentences match what the HUD shows: no markdown, list markers, or code", () => {
+test("sentences drop list markers and code blocks but keep inline markdown for the HUD to render", () => {
   const answer = [
     "**I led the payments migration at Stripe.** It cut failed charges by 30% in two quarters.",
     "",
-    "1. First, I mapped every `charge` path.",
+    "1. First, I mapped every `charge` path. `2*26*52` keys fit in memory.",
     "```python",
     "def charge(): pass",
     "```",
     "Ok.",
   ].join("\n");
   assert.deepEqual(answerSentences(answer), [
-    "I led the payments migration at Stripe.",
+    "**I led the payments migration at Stripe.**",
     "It cut failed charges by 30% in two quarters.",
-    "First, I mapped every charge path.",
+    "First, I mapped every `charge` path.",
+    "`2*26*52` keys fit in memory.",
   ]);
 });
 
