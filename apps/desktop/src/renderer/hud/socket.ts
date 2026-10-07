@@ -158,7 +158,11 @@ export function connectGateway(hooks: SocketHooks) {
         renameQuestion(msg.questionId, msg.text);
       }
       if (msg.type === "answer.flag") {
-        flagAnswer(msg.questionId, msg.kind);
+        flagAnswer(msg.questionId, {
+          kind: msg.kind,
+          sentence: typeof msg.sentence === "string" ? msg.sentence : undefined,
+          replacement: typeof msg.replacement === "string" ? msg.replacement : undefined,
+        });
       }
       if (msg.type === "answer.started") {
         const turn = state.turns.find((item) => item.id === msg.questionId);

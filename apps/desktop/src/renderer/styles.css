@@ -413,6 +413,35 @@ select,
   color: #fbbf24;
 }
 
+.msg-risky {
+  background: rgba(251, 191, 36, 0.18);
+  color: inherit;
+  border-radius: 3px;
+  text-decoration: underline dotted rgba(251, 191, 36, 0.9);
+  text-underline-offset: 3px;
+}
+
+.msg-flag q {
+  quotes: "\201C" "\201D";
+}
+
+.msg-flag .flag-line {
+  display: block;
+}
+
+.msg-flag .flag-line + .flag-line {
+  margin-top: 3px;
+}
+
+.msg-flag .flag-bad {
+  color: #fcd34d;
+  text-decoration: line-through rgba(252, 211, 77, 0.6);
+}
+
+.msg-flag .flag-good {
+  color: #86efac;
+}
+
 .msg-copy {
   align-self: flex-start;
   width: 26px;
