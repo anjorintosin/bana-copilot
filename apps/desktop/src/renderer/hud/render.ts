@@ -1,6 +1,6 @@
 import { INTERVIEW_STAGES, type InterviewStageId } from "@meeting-copilot/types";
 import { formatAccelerator } from "../../settings";
-import { formatAnswer, prettyKind } from "./answer";
+import { formatAnswer, inlinePlainText, prettyKind } from "./answer";
 import { markSentence } from "./highlight";
 import { $ } from "./dom";
 import { liveTurn, saveAppearance, state, viewingLive, type AnswerFlag } from "./state";
@@ -260,7 +260,7 @@ export function setAnswer(text: string, placeholder: boolean) {
   if (placeholder || !text) bubble.textContent = text;
   else bubble.innerHTML = formatAnswer(text);
   const sentence = state.turns.find((turn) => turn.id === id)?.flag?.sentence;
-  if (sentence && !placeholder) markSentence(bubble, sentence);
+  if (sentence && !placeholder) markSentence(bubble, inlinePlainText(sentence));
   ensureMsgCopy(bubble.parentElement, !placeholder && Boolean(text));
   applyPin();
 }
@@ -327,7 +327,7 @@ function makeFlag(flag: AnswerFlag) {
   if (flag.sentence && flag.replacement) {
     const bad = document.createElement("q");
     bad.className = "flag-bad";
-    bad.textContent = flag.sentence;
+    bad.textContent = inlinePlainText(flag.sentence);
     const good = document.createElement("q");
     good.className = "flag-good";
     good.textContent = flag.replacement;
@@ -353,7 +353,7 @@ function showFlag(art: HTMLElement, flag: AnswerFlag) {
   if (copy) copy.before(makeFlag(flag));
   else art.append(makeFlag(flag));
   const bubble = art.querySelector(".msg-a");
-  if (bubble && flag.sentence) markSentence(bubble, flag.sentence);
+  if (bubble && flag.sentence) markSentence(bubble, inlinePlainText(flag.sentence));
 }
 
 export function flagAnswer(questionId: string, flag: AnswerFlag) {

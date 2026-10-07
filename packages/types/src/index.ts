@@ -427,3 +427,22 @@ export function parseLadder(text: string): AnswerLadder {
   out.trap = buckets.trap.join("\n").trim();
   return out;
 }
+
+function isTitleGist(gist: string) {
+  const t = gist.trim();
+  if (!t) return true;
+  if (/^(hello|helo|hi|hey|thanks|ok|okay)\b/i.test(t)) return true;
+  if (/^(understanding|explaining|overview|introduction|what is)\b/i.test(t)) return true;
+  return false;
+}
+
+/** The part of an answer the HUD displays: the gist (unless it is only a title), SAY, and PUSH. TRAP stays hidden. */
+export function spokenAnswer(text: string) {
+  const ladder = parseLadder(text);
+  const parts = [
+    ladder.gist && !isTitleGist(ladder.gist) ? ladder.gist : "",
+    ladder.say,
+    ladder.push,
+  ].filter(Boolean);
+  return parts.join("\n\n") || text;
+}

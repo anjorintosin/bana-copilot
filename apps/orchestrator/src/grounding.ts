@@ -1,3 +1,4 @@
+import { spokenAnswer } from "@meeting-copilot/types";
 import { completeChat } from "./llm/chat.js";
 import { currentAi, models } from "./llm/client.js";
 import { jevDecide, jevEnabled, type JevQuestion } from "./llm/jev.js";
@@ -60,11 +61,14 @@ export function flagFromScores(scores: GroundingScores | null): GroundingFlag | 
   return null;
 }
 
-const MAX_SENTENCES = 14;
+const ANSWER_CHARS = 6000;
+const SENTENCES_PER_CALL = 12;
+const MAX_REPLACEMENT_WORDS = 40;
 
-/** Plain sentences as the HUD renders them: no code, list markers, or markdown emphasis. */
+/** Plain sentences from the part of the answer the HUD shows: no TRAP, code, list markers, or markdown emphasis. */
 export function answerSentences(answer: string) {
-  return answer
+  return spokenAnswer(answer)
+    .slice(0, ANSWER_CHARS)
     .replace(/```[\s\S]*?(```|$)/g, "\n")
     .split("\n")
     .map((line) =>
@@ -75,8 +79,7 @@ export function answerSentences(answer: string) {
     )
     .flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(])/))
     .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.split(/\s+/).length >= 4)
-    .slice(0, MAX_SENTENCES);
+    .filter((sentence) => sentence.split(/\s+/).length >= 4);
 }
 
 /** Asks Jev which sentence carries the problem it flagged on the whole answer. */
@@ -88,21 +91,36 @@ export async function locateUnsupported(input: {
   const sentences = answerSentences(input.answer);
   if (!sentences.length) return null;
   const rule = QUESTIONS[input.kind].instructions.replace(/^Does the answer/, "Does this sentence");
-  const questions: Record<string, JevQuestion> = {};
-  sentences.forEach((sentence, index) => {
-    questions[`s${index}`] = { type: "noul", instructions: `${rule}\nSentence: "${sentence}"` };
-  });
-  const answers = await jevDecide({ evidence: input.evidence.slice(0, 24_000), answer: input.answer.slice(0, 6000) }, questions);
-  let best = -1;
+  const context = {
+    evidence: input.evidence.slice(0, 24_000),
+    answer: spokenAnswer(input.answer).slice(0, ANSWER_CHARS),
+  };
+  const batches: string[][] = [];
+  for (let i = 0; i < sentences.length; i += SENTENCES_PER_CALL) {
+    batches.push(sentences.slice(i, i + SENTENCES_PER_CALL));
+  }
+  const scored = await Promise.all(
+    batches.map(async (batch) => {
+      const questions: Record<string, JevQuestion> = {};
+      batch.forEach((sentence, index) => {
+        questions[`s${index}`] = { type: "noul", instructions: `${rule}\nSentence: "${sentence}"` };
+      });
+      const answers = await jevDecide(context, questions);
+      return batch.map((sentence, index) => {
+        const hit = answers?.[`s${index}`];
+        return { sentence, score: hit?.type === "noul" ? hit.noul : 0 };
+      });
+    }),
+  );
+  let best: string | null = null;
   let bestScore = 0.5;
-  sentences.forEach((_, index) => {
-    const hit = answers?.[`s${index}`];
-    if (hit?.type === "noul" && hit.noul > bestScore) {
-      best = index;
-      bestScore = hit.noul;
+  for (const { sentence, score } of scored.flat()) {
+    if (score > bestScore) {
+      best = sentence;
+      bestScore = score;
     }
-  });
-  return best >= 0 ? sentences[best] : null;
+  }
+  return best;
 }
 
 /** One spoken replacement that keeps the point but only uses facts from the evidence. */
@@ -121,7 +139,8 @@ export async function rewriteSentence(input: {
       temperature: 0.2,
       maxTokens: 90,
     });
-    return raw.trim().replace(/^["“']|["”']$/g, "").slice(0, 240);
+    const replacement = raw.trim().replace(/^["“']|["”']$/g, "");
+    return replacement.split(/\s+/).length > MAX_REPLACEMENT_WORDS ? "" : replacement;
   } catch {
     return "";
   }
