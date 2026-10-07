@@ -16,7 +16,7 @@ import { aiStatus, runWithAi, type AiCreds } from "./llm/client.js";
 import { analyzeScreen, type ScreenAnalysis } from "./llm/vision.js";
 import { KNOWLEDGE_IN_BRIEF, assistScreenAsk } from "./llm/prompts.js";
 import { chunkKnowledge, pickKnowledge } from "./modeKnowledge.js";
-import { flagFromScores, scoreGrounding } from "./grounding.js";
+import { fixUnsupported, flagFromScores, scoreGrounding } from "./grounding.js";
 import { jevEnabled } from "./llm/jev.js";
 import {
   classifyTurn,
@@ -426,13 +426,19 @@ async function streamCueCardInner(
         .join("\n\n");
       const checkedAt = Date.now();
       void scoreGrounding({ question: classified.text, answer: full, evidence })
-        .then((scores) => {
+        .then(async (scores) => {
           if (!scores) return;
           const flag = flagFromScores(scores);
           console.log(
             `[jev] ${JSON.stringify({ agent: specialist.id, invented: Number(scores.invented.toFixed(2)), contradicts: Number(scores.contradicts.toFixed(2)), ms: Date.now() - checkedAt, flagged: flag?.kind ?? false })}`,
           );
-          return flag ? emit({ type: "answer.flag", questionId, ...flag }) : undefined;
+          if (!flag) return;
+          await emit({ type: "answer.flag", questionId, ...flag });
+          const fix = await withSessionAi(sessionId, () =>
+            fixUnsupported({ question: classified.text, answer: full, evidence, kind: flag.kind }),
+          );
+          console.log(`[jev] ${JSON.stringify({ fix: Boolean(fix), ms: Date.now() - checkedAt })}`);
+          if (fix) await emit({ type: "answer.flag", questionId, ...flag, ...fix });
         })
         .catch(() => undefined);
     }

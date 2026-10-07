@@ -347,6 +347,8 @@ export type ServerEvent =
       questionId: string;
       kind: "invented" | "contradicts";
       confidence: number;
+      sentence?: string;
+      replacement?: string;
     }
   | { type: "answer.cancelled"; questionId: string }
   | {

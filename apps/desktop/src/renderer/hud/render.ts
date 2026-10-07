@@ -1,8 +1,9 @@
 import { INTERVIEW_STAGES, type InterviewStageId } from "@meeting-copilot/types";
 import { formatAccelerator } from "../../settings";
 import { formatAnswer, prettyKind } from "./answer";
+import { markSentence } from "./highlight";
 import { $ } from "./dom";
-import { liveTurn, saveAppearance, state, viewingLive } from "./state";
+import { liveTurn, saveAppearance, state, viewingLive, type AnswerFlag } from "./state";
 
 function chord(id: keyof typeof state.shortcuts) {
   return formatAccelerator(state.shortcuts[id], window.copilot?.platform ?? "darwin");
@@ -229,8 +230,8 @@ export function paintThread() {
       } else {
         art.append(a);
       }
-      if (turn.flag) art.append(makeFlag(turn.flag));
       if (!empty) art.append(makeCopyBtn());
+      if (turn.flag) showFlag(art, turn.flag);
       return art;
     }),
   );
@@ -258,6 +259,8 @@ export function setAnswer(text: string, placeholder: boolean) {
   bubble.classList.toggle("placeholder", placeholder);
   if (placeholder || !text) bubble.textContent = text;
   else bubble.innerHTML = formatAnswer(text);
+  const sentence = state.turns.find((turn) => turn.id === id)?.flag?.sentence;
+  if (sentence && !placeholder) markSentence(bubble, sentence);
   ensureMsgCopy(bubble.parentElement, !placeholder && Boolean(text));
   applyPin();
 }
@@ -318,26 +321,47 @@ export function showQuestion(questionId: string, kind: string, text: string) {
   void window.copilot?.setCollapsed(false);
 }
 
-function makeFlag(kind: "invented" | "contradicts") {
+function makeFlag(flag: AnswerFlag) {
   const note = document.createElement("p");
   note.className = "msg-flag";
+  if (flag.sentence && flag.replacement) {
+    const bad = document.createElement("q");
+    bad.className = "flag-bad";
+    bad.textContent = flag.sentence;
+    const good = document.createElement("q");
+    good.className = "flag-good";
+    good.textContent = flag.replacement;
+    const avoid = document.createElement("span");
+    avoid.className = "flag-line";
+    avoid.append("Don't say ", bad);
+    const instead = document.createElement("span");
+    instead.className = "flag-line";
+    instead.append("Say instead ", good);
+    note.append(avoid, instead);
+    return note;
+  }
   note.textContent =
-    kind === "contradicts"
+    flag.kind === "contradicts"
       ? "Check before saying: this may contradict your resume, mode, or what you already said."
       : "Check before saying: this may include details that are not in your resume or mode.";
   return note;
 }
 
-export function flagAnswer(questionId: string, kind: "invented" | "contradicts") {
-  const turn = state.turns.find((item) => item.id === questionId);
-  if (!turn) return;
-  turn.flag = kind;
-  const art = $.thread.querySelector(`[data-turn="${CSS.escape(questionId)}"]`);
-  if (!(art instanceof HTMLElement)) return;
+function showFlag(art: HTMLElement, flag: AnswerFlag) {
   art.querySelector(".msg-flag")?.remove();
   const copy = art.querySelector(".msg-copy");
-  if (copy) copy.before(makeFlag(kind));
-  else art.append(makeFlag(kind));
+  if (copy) copy.before(makeFlag(flag));
+  else art.append(makeFlag(flag));
+  const bubble = art.querySelector(".msg-a");
+  if (bubble && flag.sentence) markSentence(bubble, flag.sentence);
+}
+
+export function flagAnswer(questionId: string, flag: AnswerFlag) {
+  const turn = state.turns.find((item) => item.id === questionId);
+  if (!turn) return;
+  turn.flag = flag;
+  const art = $.thread.querySelector(`[data-turn="${CSS.escape(questionId)}"]`);
+  if (art instanceof HTMLElement) showFlag(art, flag);
 }
 
 export function renameQuestion(questionId: string, text: string) {
