@@ -210,6 +210,24 @@ export function paintThread() {
       const art = document.createElement("article");
       art.className = `msg${index === state.viewIndex ? " active" : ""}`;
       art.dataset.turn = turn.id;
+
+      if (turn.screenshot) {
+        const chip = document.createElement("div");
+        chip.className = "shot-chip";
+        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        icon.setAttribute("class", "shot-icon");
+        icon.setAttribute("viewBox", "0 0 16 16");
+        icon.setAttribute("aria-hidden", "true");
+        icon.innerHTML = `<rect x="2" y="2" width="12" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 14h6M8 11v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`;
+        const label = document.createElement("span");
+        label.textContent = "Viewed screen";
+        const img = document.createElement("img");
+        img.src = turn.screenshot;
+        img.alt = "Screenshot preview";
+        chip.append(icon, label, img);
+        art.append(chip);
+      }
+
       const a = document.createElement("div");
       const empty = !turn.answer;
       a.className = `msg-a${empty ? " placeholder" : ""}`;
@@ -304,9 +322,11 @@ export function renderTurn(index: number) {
   pinTurn(turn.id);
 }
 
-export function showQuestion(questionId: string, kind: string, text: string) {
+export function showQuestion(questionId: string, kind: string, text: string, screenshot?: string) {
   state.currentQuestionId = questionId;
   state.questionTranscript = text;
+  const shot = screenshot ?? state.pendingScreenshot;
+  state.pendingScreenshot = undefined;
   state.turns.push({
     id: questionId,
     kind,
@@ -314,6 +334,7 @@ export function showQuestion(questionId: string, kind: string, text: string) {
     transcript: text,
     answer: "",
     done: false,
+    screenshot: shot,
   });
   renderTurn(state.turns.length - 1);
   void window.copilot?.setCollapsed(false);
@@ -377,7 +398,6 @@ export function resetCard(message: string, answer: string) {
   state.viewIndex = -1;
   state.currentQuestionId = "";
   state.questionTranscript = "";
-  $.shotChip.hidden = true;
   $.histLabel.textContent = "Live";
   $.prevBtn.disabled = true;
   $.nextBtn.disabled = true;

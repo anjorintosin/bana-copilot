@@ -266,8 +266,7 @@ async function requestScreenAssist() {
       shot.error || "Could not capture the screen. Allow Screen Recording, then retry.";
     return;
   }
-  $.shotPreview.src = shot.dataUrl || "";
-  $.shotChip.hidden = false;
+  state.pendingScreenshot = shot.dataUrl || "";
   if (state.socket?.readyState !== WebSocket.OPEN) {
     setBusy(false);
     $.liveText.textContent = "Gateway offline — try again in a moment.";
@@ -298,8 +297,7 @@ async function triggerAssist() {
     const typedShot = screenAllowed() && asksAboutScreen(typed) ? await grabShot() : null;
     const typedImage = typedShot?.ok && typedShot.jpegBase64 ? typedShot.jpegBase64 : undefined;
     if (typedImage && typedShot) {
-      $.shotPreview.src = typedShot.dataUrl || "";
-      $.shotChip.hidden = false;
+      state.pendingScreenshot = typedShot.dataUrl || "";
     }
     void requestAssist("ask", typed, { transcript: pack.transcript, jpegBase64: typedImage });
     return;
@@ -319,8 +317,7 @@ async function triggerAssist() {
     return;
   }
   if (image && shot) {
-    $.shotPreview.src = shot.dataUrl || "";
-    $.shotChip.hidden = false;
+    state.pendingScreenshot = shot.dataUrl || "";
   }
   const sent = requestAssist("assist", pack.question || undefined, {
     jpegBase64: image,
