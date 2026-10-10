@@ -96,47 +96,6 @@ header {
   display: none !important;
 }
 
-.hud-subbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 2px 2px 4px;
-  flex-shrink: 0;
-  z-index: 6;
-}
-
-.hud.collapsed .hud-subbar {
-  display: none !important;
-}
-
-.subbar-spacer {
-  flex: 1;
-}
-
-.assist-top-btn {
-  -webkit-app-region: no-drag;
-  border: 0;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.14);
-  color: #f4f4f5;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 14px;
-  border-radius: 12px;
-  transition: background 120ms ease, color 120ms ease, transform 80ms ease;
-}
-
-.assist-top-btn:hover {
-  background: rgba(255, 255, 255, 0.22);
-  color: #ffffff;
-}
-
-.assist-top-btn:active {
-  transform: scale(0.97);
-}
-
 .hud-toolbar {
   position: relative;
   z-index: 7;
@@ -594,12 +553,10 @@ select,
   border-color: rgba(255, 255, 255, 0.22);
 }
 
-.hud.collapsed .hud-subbar,
 .hud.collapsed .thread,
 .hud.collapsed .pending,
 .hud.collapsed .shot-chip,
 .hud.collapsed .answer-loader,
-.hud.history-open .hud-subbar,
 .hud.history-open .thread,
 .hud.history-open .pending,
 .hud.history-open .shot-chip,

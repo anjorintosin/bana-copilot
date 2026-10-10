@@ -792,11 +792,6 @@ $.askForm.addEventListener("submit", (event) => {
   triggerAssist();
 });
 
-$.assistTopBtn.addEventListener("click", () => {
-  dismissHudModals();
-  triggerAssist();
-});
-
 $.thread.addEventListener("click", async (event) => {
   const msgCopy = (event.target as HTMLElement).closest(".msg-copy");
   if (msgCopy instanceof HTMLButtonElement) {
