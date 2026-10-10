@@ -16,19 +16,12 @@ cpSync("src/home/home.css", "dist/home.css");
 cpSync("src/onboard/onboard.html", "dist/onboard.html");
 cpSync("src/onboard/onboard.css", "dist/onboard.css");
 
-let ec2Host = "";
-try {
-  if (existsSync("../../infra/ec2-host.txt")) {
-    ec2Host = readFileSync("../../infra/ec2-host.txt", "utf8").trim();
-  } else if (existsSync("infra/ec2-host.txt")) {
-    ec2Host = readFileSync("infra/ec2-host.txt", "utf8").trim();
-  }
-} catch {
-  /* optional */
-}
-
-const defaultHttp = process.env.MEETING_COPILOT_HTTP || (ec2Host ? `http://${ec2Host}:8787` : "http://127.0.0.1:8787");
-const defaultWs = process.env.MEETING_COPILOT_API || (ec2Host ? `ws://${ec2Host}:8787/ws` : "ws://127.0.0.1:8787/ws");
+const defaultHttp = process.env.MEETING_COPILOT_HTTP || "http://127.0.0.1:8787";
+const defaultWs =
+  process.env.MEETING_COPILOT_API ||
+  (defaultHttp.startsWith("https:")
+    ? defaultHttp.replace(/^https:/, "wss:") + "/ws"
+    : defaultHttp.replace(/^http:/, "ws:") + "/ws");
 
 const contexts = await Promise.all(configs.map((c) => esbuild.context(c)));
 await Promise.all(contexts.map((ctx) => ctx.rebuild()));

@@ -57,7 +57,6 @@
           ]
         }
       ],
-      "identity": "Apple Development",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
