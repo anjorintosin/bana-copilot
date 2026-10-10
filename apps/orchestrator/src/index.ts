@@ -1232,7 +1232,7 @@ export async function handleAssistRequest(
     await emit({
       type: "session.error",
       code: "no_ai_key",
-      message: "Subscribe on the Plan page, or add your model key there.",
+      message: "Server AI key is not configured. Please ensure OPENAI_API_KEY is set in the server environment.",
     });
     return;
   }

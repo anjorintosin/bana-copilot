@@ -16,7 +16,8 @@ cpSync("src/home/home.css", "dist/home.css");
 cpSync("src/onboard/onboard.html", "dist/onboard.html");
 cpSync("src/onboard/onboard.css", "dist/onboard.css");
 
-const defaultHttp = process.env.MEETING_COPILOT_HTTP || "http://127.0.0.1:8787";
+const rawHttp = process.env.MEETING_COPILOT_HTTP || "http://127.0.0.1:8787";
+const defaultHttp = rawHttp.replace(/\/+$/, "");
 const defaultWs =
   process.env.MEETING_COPILOT_API ||
   (defaultHttp.startsWith("https:")
