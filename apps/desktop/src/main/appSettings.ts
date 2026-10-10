@@ -131,12 +131,17 @@ function onboardFile() {
 export function isOnboarded() {
   try {
     const saved = JSON.parse(fs.readFileSync(onboardFile(), "utf8"));
-    return saved.done === true && saved.version === app.getVersion();
+    if (saved.done !== true || saved.version !== app.getVersion()) return false;
+    if (saved.appPath && saved.appPath !== app.getAppPath()) return false;
+    return true;
   } catch {
     return false;
   }
 }
 
 export function markOnboarded() {
-  fs.writeFileSync(onboardFile(), JSON.stringify({ done: true, version: app.getVersion() }));
+  fs.writeFileSync(
+    onboardFile(),
+    JSON.stringify({ done: true, version: app.getVersion(), appPath: app.getAppPath() }),
+  );
 }
