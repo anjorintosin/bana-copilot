@@ -2,7 +2,7 @@ import * as esbuild from "esbuild";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { configs } from "./build.mjs";
-import { cpSync, mkdirSync } from "node:fs";
+import { cpSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const electronPath = require("electron");
@@ -16,6 +16,14 @@ cpSync("src/home/home.css", "dist/home.css");
 cpSync("src/onboard/onboard.html", "dist/onboard.html");
 cpSync("src/onboard/onboard.css", "dist/onboard.css");
 
+const rawHttp = process.env.MEETING_COPILOT_HTTP || "http://127.0.0.1:8787";
+const defaultHttp = rawHttp.replace(/\/+$/, "");
+const defaultWs =
+  process.env.MEETING_COPILOT_API ||
+  (defaultHttp.startsWith("https:")
+    ? defaultHttp.replace(/^https:/, "wss:") + "/ws"
+    : defaultHttp.replace(/^http:/, "ws:") + "/ws");
+
 const contexts = await Promise.all(configs.map((c) => esbuild.context(c)));
 await Promise.all(contexts.map((ctx) => ctx.rebuild()));
 
@@ -28,7 +36,8 @@ const child = spawn(electronPath, ["."], {
   env: {
     ...process.env,
     ELECTRON_DISABLE_SECURITY_WARNINGS: "true",
-    MEETING_COPILOT_API: process.env.MEETING_COPILOT_API ?? "ws://127.0.0.1:8787/ws",
+    MEETING_COPILOT_HTTP: defaultHttp,
+    MEETING_COPILOT_API: defaultWs,
   },
 });
 

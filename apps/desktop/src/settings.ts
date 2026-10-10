@@ -12,6 +12,10 @@ export const SHORTCUT_IDS = [
   "share",
   "clear",
   "interact",
+  "move_up",
+  "move_down",
+  "move_left",
+  "move_right",
 ] as const;
 
 export type ShortcutId = (typeof SHORTCUT_IDS)[number];
@@ -42,6 +46,10 @@ export const SHORTCUT_META: ShortcutMeta[] = [
     hint: "Unused — the HUD is always clickable",
     scope: "session",
   },
+  { id: "move_up", label: "Move HUD Up", hint: "Nudge HUD position up", scope: "always" },
+  { id: "move_down", label: "Move HUD Down", hint: "Nudge HUD position down", scope: "always" },
+  { id: "move_left", label: "Move HUD Left", hint: "Nudge HUD position left", scope: "always" },
+  { id: "move_right", label: "Move HUD Right", hint: "Nudge HUD position right", scope: "always" },
 ];
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
@@ -58,6 +66,10 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   share: "CommandOrControl+Shift+S",
   clear: "CommandOrControl+Shift+Backspace",
   interact: "CommandOrControl+Shift+A",
+  move_up: "CommandOrControl+Up",
+  move_down: "CommandOrControl+Down",
+  move_left: "CommandOrControl+Left",
+  move_right: "CommandOrControl+Right",
 };
 
 export type LookSettings = {
@@ -144,6 +156,10 @@ export function formatAccelerator(accelerator: string, platform = "darwin") {
       if (part === "Enter") return mac ? "↩" : "Enter";
       if (part === "Escape") return "Esc";
       if (part === "Space") return "Space";
+      if (part === "Up") return mac ? "↑" : "Up";
+      if (part === "Down") return mac ? "↓" : "Down";
+      if (part === "Left") return mac ? "←" : "Left";
+      if (part === "Right") return mac ? "→" : "Right";
       return part;
     })
     .join(mac ? "" : "+");
@@ -163,6 +179,18 @@ export function mergeSettings(raw: unknown): AppSettings {
     }
     if (shortcuts.screen === "CommandOrControl+Shift+Enter") {
       shortcuts.screen = DEFAULT_SHORTCUTS.screen;
+    }
+    if (shortcuts.move_up === "CommandOrControl+Alt+Up") {
+      shortcuts.move_up = DEFAULT_SHORTCUTS.move_up;
+    }
+    if (shortcuts.move_down === "CommandOrControl+Alt+Down") {
+      shortcuts.move_down = DEFAULT_SHORTCUTS.move_down;
+    }
+    if (shortcuts.move_left === "CommandOrControl+Alt+Left") {
+      shortcuts.move_left = DEFAULT_SHORTCUTS.move_left;
+    }
+    if (shortcuts.move_right === "CommandOrControl+Alt+Right") {
+      shortcuts.move_right = DEFAULT_SHORTCUTS.move_right;
     }
   }
   const look = { ...DEFAULT_LOOK };

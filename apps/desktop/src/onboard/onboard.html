@@ -11,40 +11,7 @@
   </head>
   <body>
     <div class="wizard">
-      <section class="step" id="step-key">
-        <h1>Let's get you set up</h1>
-        <p class="lede">Add your model key. Assist uses this to answer.</p>
-        <label class="field">
-          <span>Provider</span>
-          <select id="key-provider">
-            <option value="openai">OpenAI</option>
-            <option value="claude">Claude</option>
-            <option value="grok">Grok (xAI)</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>API key</span>
-          <input id="key-value" type="password" autocomplete="off" placeholder="Paste your key" />
-        </label>
-        <p class="status" id="key-status"></p>
-        <button type="button" class="primary" id="key-continue">Continue</button>
-      </section>
-
-      <section class="step" id="step-knowledge" hidden>
-        <h1>Add knowledge</h1>
-        <p class="lede">Optional. Attaches to General — notes, a resume, a job post, anything Assist should know.</p>
-        <textarea id="knowledge-text" placeholder="Paste text, or add a file"></textarea>
-        <div class="actions">
-          <label class="file-btn">Add file<input id="knowledge-file" type="file" accept=".pdf,.txt,.md,.text,application/pdf" /></label>
-        </div>
-        <p class="status" id="knowledge-status"></p>
-        <div class="actions">
-          <button type="button" class="ghost" id="knowledge-skip">Skip</button>
-          <button type="button" class="primary" id="knowledge-continue">Continue</button>
-        </div>
-      </section>
-
-      <section class="step" id="step-perms" hidden>
+      <section class="step" id="step-perms">
         <h1>Shortcuts and access</h1>
         <p class="lede" id="perms-lede">Allow microphone, screen, and meeting audio when prompted.</p>
         <div class="perm-row">

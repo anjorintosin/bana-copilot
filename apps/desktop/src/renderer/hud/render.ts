@@ -1,8 +1,9 @@
 import { INTERVIEW_STAGES, type InterviewStageId } from "@meeting-copilot/types";
 import { formatAccelerator } from "../../settings";
-import { formatAnswer, prettyKind } from "./answer";
+import { formatAnswer, inlinePlainText, prettyKind } from "./answer";
+import { markSentence } from "./highlight";
 import { $ } from "./dom";
-import { liveTurn, saveAppearance, state, viewingLive } from "./state";
+import { liveTurn, saveAppearance, state, viewingLive, type AnswerFlag } from "./state";
 
 function chord(id: keyof typeof state.shortcuts) {
   return formatAccelerator(state.shortcuts[id], window.copilot?.platform ?? "darwin");
@@ -60,12 +61,10 @@ export function applyCollapsed(next: boolean) {
   state.collapsed = next;
   $.hud.classList.toggle("collapsed", next);
   setTip($.backBtn, next ? "Bana" : "Back");
-  const row = $.hud.querySelector(".icon-row");
-  const header = $.hud.querySelector("header");
   if (next) {
-    if (header && row) header.insertBefore($.askForm, row);
+    $.askInput.placeholder = "Ask anything or solve your screen";
   } else {
-    $.composer.append($.askForm);
+    $.askInput.placeholder = "Ask follow-up…";
   }
 }
 
@@ -211,6 +210,24 @@ export function paintThread() {
       const art = document.createElement("article");
       art.className = `msg${index === state.viewIndex ? " active" : ""}`;
       art.dataset.turn = turn.id;
+
+      if (turn.screenshot) {
+        const chip = document.createElement("div");
+        chip.className = "shot-chip";
+        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        icon.setAttribute("class", "shot-icon");
+        icon.setAttribute("viewBox", "0 0 16 16");
+        icon.setAttribute("aria-hidden", "true");
+        icon.innerHTML = `<rect x="2" y="2" width="12" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 14h6M8 11v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`;
+        const label = document.createElement("span");
+        label.textContent = "Viewed screen";
+        const img = document.createElement("img");
+        img.src = turn.screenshot;
+        img.alt = "Screenshot preview";
+        chip.append(icon, label, img);
+        art.append(chip);
+      }
+
       const a = document.createElement("div");
       const empty = !turn.answer;
       a.className = `msg-a${empty ? " placeholder" : ""}`;
@@ -229,8 +246,8 @@ export function paintThread() {
       } else {
         art.append(a);
       }
-      if (turn.flag) art.append(makeFlag(turn.flag));
       if (!empty) art.append(makeCopyBtn());
+      if (turn.flag) showFlag(art, turn.flag);
       return art;
     }),
   );
@@ -258,6 +275,8 @@ export function setAnswer(text: string, placeholder: boolean) {
   bubble.classList.toggle("placeholder", placeholder);
   if (placeholder || !text) bubble.textContent = text;
   else bubble.innerHTML = formatAnswer(text);
+  const sentence = state.turns.find((turn) => turn.id === id)?.flag?.sentence;
+  if (sentence && !placeholder) markSentence(bubble, inlinePlainText(sentence));
   ensureMsgCopy(bubble.parentElement, !placeholder && Boolean(text));
   applyPin();
 }
@@ -303,9 +322,11 @@ export function renderTurn(index: number) {
   pinTurn(turn.id);
 }
 
-export function showQuestion(questionId: string, kind: string, text: string) {
+export function showQuestion(questionId: string, kind: string, text: string, screenshot?: string) {
   state.currentQuestionId = questionId;
   state.questionTranscript = text;
+  const shot = screenshot ?? state.pendingScreenshot;
+  state.pendingScreenshot = undefined;
   state.turns.push({
     id: questionId,
     kind,
@@ -313,31 +334,53 @@ export function showQuestion(questionId: string, kind: string, text: string) {
     transcript: text,
     answer: "",
     done: false,
+    screenshot: shot,
   });
   renderTurn(state.turns.length - 1);
   void window.copilot?.setCollapsed(false);
 }
 
-function makeFlag(kind: "invented" | "contradicts") {
+function makeFlag(flag: AnswerFlag) {
   const note = document.createElement("p");
   note.className = "msg-flag";
+  if (flag.sentence && flag.replacement) {
+    const bad = document.createElement("q");
+    bad.className = "flag-bad";
+    bad.textContent = inlinePlainText(flag.sentence);
+    const good = document.createElement("q");
+    good.className = "flag-good";
+    good.textContent = flag.replacement;
+    const avoid = document.createElement("span");
+    avoid.className = "flag-line";
+    avoid.append("Don't say ", bad);
+    const instead = document.createElement("span");
+    instead.className = "flag-line";
+    instead.append("Say instead ", good);
+    note.append(avoid, instead);
+    return note;
+  }
   note.textContent =
-    kind === "contradicts"
+    flag.kind === "contradicts"
       ? "Check before saying: this may contradict your resume, mode, or what you already said."
       : "Check before saying: this may include details that are not in your resume or mode.";
   return note;
 }
 
-export function flagAnswer(questionId: string, kind: "invented" | "contradicts") {
-  const turn = state.turns.find((item) => item.id === questionId);
-  if (!turn) return;
-  turn.flag = kind;
-  const art = $.thread.querySelector(`[data-turn="${CSS.escape(questionId)}"]`);
-  if (!(art instanceof HTMLElement)) return;
+function showFlag(art: HTMLElement, flag: AnswerFlag) {
   art.querySelector(".msg-flag")?.remove();
   const copy = art.querySelector(".msg-copy");
-  if (copy) copy.before(makeFlag(kind));
-  else art.append(makeFlag(kind));
+  if (copy) copy.before(makeFlag(flag));
+  else art.append(makeFlag(flag));
+  const bubble = art.querySelector(".msg-a");
+  if (bubble && flag.sentence) markSentence(bubble, inlinePlainText(flag.sentence));
+}
+
+export function flagAnswer(questionId: string, flag: AnswerFlag) {
+  const turn = state.turns.find((item) => item.id === questionId);
+  if (!turn) return;
+  turn.flag = flag;
+  const art = $.thread.querySelector(`[data-turn="${CSS.escape(questionId)}"]`);
+  if (art instanceof HTMLElement) showFlag(art, flag);
 }
 
 export function renameQuestion(questionId: string, text: string) {
@@ -355,7 +398,7 @@ export function resetCard(message: string, answer: string) {
   state.viewIndex = -1;
   state.currentQuestionId = "";
   state.questionTranscript = "";
-  $.shotChip.hidden = true;
+  state.pendingScreenshot = undefined;
   $.histLabel.textContent = "Live";
   $.prevBtn.disabled = true;
   $.nextBtn.disabled = true;

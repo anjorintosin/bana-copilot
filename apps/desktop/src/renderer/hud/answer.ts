@@ -1,4 +1,4 @@
-import { parseLadder } from "@meeting-copilot/types";
+import { parseLadder, spokenAnswer } from "@meeting-copilot/types";
 
 export function prettyKind(kind: string) {
   const labels: Record<string, string> = {
@@ -191,32 +191,23 @@ function renderBody(source: string) {
   return html;
 }
 
-function isTitleGist(gist: string) {
-  const t = gist.trim();
-  if (!t) return true;
-  if (/^(hello|helo|hi|hey|thanks|ok|okay)\b/i.test(t)) return true;
-  if (/^(understanding|explaining|overview|introduction|what is)\b/i.test(t)) return true;
-  return false;
-}
-
-function spokenText(text: string) {
-  const ladder = parseLadder(text);
-  const parts = [
-    ladder.gist && !isTitleGist(ladder.gist) ? ladder.gist : "",
-    ladder.say,
-    ladder.push,
-  ].filter(Boolean);
-  return parts.join("\n\n") || text;
-}
-
 export function formatAnswer(text: string) {
-  return renderBody(spokenText(text)) || escapeHtml(text);
+  return renderBody(spokenAnswer(text)) || escapeHtml(text);
+}
+
+/** One line of answer source as the HUD displays it: math converted, `**` and backticks dropped. */
+export function inlinePlainText(line: string) {
+  return renderInline(line)
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 /** Clipboard text: keeps line breaks and list numbers, drops markdown marks, turns TeX into plain math. */
 export function answerPlainText(text: string) {
   let inFence = false;
-  return spokenText(text)
+  return spokenAnswer(text)
     .replace(/\r/g, "")
     .split("\n")
     .map((line) => {

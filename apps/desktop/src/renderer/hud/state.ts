@@ -2,6 +2,12 @@ import type { CaptureHandle, CaptureSource } from "../audio/capture";
 import type { AnswerMode, InterviewStageId, InterviewTrackId, ListenMode } from "@meeting-copilot/types";
 import { DEFAULT_SHORTCUTS, type ShortcutId } from "../../settings";
 
+export type AnswerFlag = {
+  kind: "invented" | "contradicts";
+  sentence?: string;
+  replacement?: string;
+};
+
 export type Turn = {
   id: string;
   kind: string;
@@ -9,7 +15,8 @@ export type Turn = {
   transcript: string;
   answer: string;
   done: boolean;
-  flag?: "invented" | "contradicts";
+  flag?: AnswerFlag;
+  screenshot?: string;
 };
 
 export const state = {
@@ -44,6 +51,7 @@ export const state = {
   sessionStartedAt: 0,
   clock: 0,
   turns: [] as Turn[],
+  pendingScreenshot: undefined as string | undefined,
   busy: false,
   modes: [] as AnswerMode[],
   activeModeId: "",

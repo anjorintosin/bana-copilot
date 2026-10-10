@@ -57,25 +57,6 @@
           <div class="actions">
             <button type="button" class="ghost" id="quit-btn">Quit</button>
           </div>
-          <h2 class="subhead">Model key</h2>
-          <p class="hint" id="key-hint">Required before Assist can answer.</p>
-          <label class="field">
-            <span>Provider</span>
-            <select id="key-provider">
-              <option value="openai">OpenAI</option>
-              <option value="claude">Claude</option>
-              <option value="grok">Grok (xAI)</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>API key</span>
-            <input id="key-value" type="password" autocomplete="off" placeholder="sk-…, sk-ant-…, or xai-…" />
-          </label>
-          <div class="actions">
-            <button type="button" id="key-save">Save key</button>
-            <button type="button" class="ghost" id="key-clear">Remove key</button>
-          </div>
-          <p class="status" id="key-status"></p>
         </section>
 
         <section class="page" id="page-modes" hidden>
@@ -131,27 +112,25 @@
 
         <section class="page" id="page-about" hidden>
           <h1>About</h1>
-          <p class="hint">Bana Copilot is an overlay that sits on your screen during interviews. It listens when you ask it to, reads what’s on screen when you send it, and drafts what to say — it does not auto-answer.</p>
-          <p id="about-version">Desktop 0.1.2</p>
+          <p class="hint">Bana Copilot is an intelligent stealth overlay that sits on your screen during interviews. It listens when you ask it to, inspects what’s on screen when sent, and drafts concise suggestions — never auto-answering without you.</p>
+          <p id="about-version">Desktop 0.1.5</p>
           <h2 class="subhead">What you can do</h2>
           <ul class="about-list">
-            <li><strong>Ask anything</strong> — type in the bar and press Enter. That’s normal chat: greetings, follow-ups, or a question you heard.</li>
-            <li><strong>Assist</strong> — the arrow next to the bar packs recent audio (and screen when you didn’t type) so it can draft an answer for the live interview.</li>
-            <li><strong>Start session</strong> — begins a timed session. Click again to end it and open History on that session.</li>
-            <li><strong>Mode</strong> — switch how Assist should answer, and attach resumes or notes. General is built in; create others for coding, behavioral, and so on.</li>
-            <li><strong>Visibility</strong> — keep the HUD off Zoom / Meet screen share. Turn that off in General if you want it visible.</li>
-            <li><strong>Solve what’s on screen</strong> — the screen icon captures the display and works the problem you can see (coding, prompts, docs).</li>
-            <li><strong>Settings</strong> — key, modes, shortcuts, and look.</li>
-            <li><strong>History</strong> — reopen past sessions without leaving the HUD.</li>
+            <li><strong>Ask anything</strong> — type in the top bar and press Enter (↵). Ask follow-ups, coding inquiries, or questions you heard.</li>
+            <li><strong>Assist</strong> — the top-right Assist button drafts answers based on interview speech and screen context.</li>
+            <li><strong>Move HUD</strong> — reposition the overlay anywhere on your display using ⌘↑, ⌘↓, ⌘←, and ⌘→.</li>
+            <li><strong>Visibility / Stealth</strong> — the slashed eye icon ensures the HUD remains invisible to Zoom and Google Meet screen share. When visible, it alerts with an orange highlight.</li>
+            <li><strong>Solve screen</strong> — tap the screen icon to capture coding problems, interview prompts, or diagrams on your monitor.</li>
+            <li><strong>Modes & Knowledge</strong> — customize prompt context (e.g. Coding vs System Design) and attach resumes or job descriptions.</li>
+            <li><strong>History</strong> — browse and review past session transcripts and answers anytime.</li>
           </ul>
           <h2 class="subhead">How to use it</h2>
           <ol class="about-list">
-            <li>Add your own model key on General (or during first-run setup). Assist cannot answer without it.</li>
-            <li>Optional: open Modes, attach a resume or job notes, and press Use on the mode you want.</li>
-            <li>Start a session from the HUD. Live shortcuts only work during a session.</li>
-            <li>When they ask, type it, press Assist, or tap Screen if the question is on the display.</li>
-            <li>Read the reply in the HUD. Copy with the icon under the bubble. Scroll down for the rest of a long answer.</li>
-            <li>The B mark collapses the HUD back to the short bar. Shortcuts are on the Shortcuts page if you want keys instead of clicks.</li>
+            <li>Check permissions for Microphone, Screen Recording, and Meeting Audio in Onboarding.</li>
+            <li>Start a session from the HUD when your interview or meeting begins.</li>
+            <li>When asked a question, press Assist (⌘Enter) or type into the wide top input bar.</li>
+            <li>Use ⌘↑, ⌘↓, ⌘←, and ⌘→ to move the HUD out of your way.</li>
+            <li>Click the back arrow (←) on the top left to collapse the HUD back to the compact pill.</li>
           </ol>
         </section>
       </main>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { checkGrounding, flagFromScores } from "./grounding.js";
+import { answerSentences, checkGrounding, flagFromScores } from "./grounding.js";
 
 afterEach(() => {
   delete process.env.JEV_FLAG_THRESHOLD;
@@ -30,6 +30,51 @@ test("threshold is configurable", () => {
   assert.equal(flagFromScores({ invented: 0.62, contradicts: 0 })?.kind, "invented");
   process.env.JEV_FLAG_THRESHOLD = "7";
   assert.equal(flagFromScores({ invented: 0.62, contradicts: 0 }), null);
+});
+
+test("sentences drop list markers and code blocks but keep inline markdown for the HUD to render", () => {
+  const answer = [
+    "**I led the payments migration at Stripe.** It cut failed charges by 30% in two quarters.",
+    "",
+    "1. First, I mapped every `charge` path. `2*26*52` keys fit in memory.",
+    "```python",
+    "def charge(): pass",
+    "```",
+    "Ok.",
+  ].join("\n");
+  assert.deepEqual(answerSentences(answer), [
+    "**I led the payments migration at Stripe.**",
+    "It cut failed charges by 30% in two quarters.",
+    "First, I mapped every `charge` path.",
+    "`2*26*52` keys fit in memory.",
+  ]);
+});
+
+test("sentences skip the TRAP section the HUD hides", () => {
+  const answer = [
+    "Hot shard, not CAP",
+    "",
+    "SAY",
+    "I would partition orders by merchant.",
+    "",
+    "PUSH",
+    "Watch the write rate on each partition.",
+    "",
+    "TRAP",
+    "I built this exact system at Google.",
+  ].join("\n");
+  assert.deepEqual(answerSentences(answer), [
+    "Hot shard, not CAP",
+    "I would partition orders by merchant.",
+    "Watch the write rate on each partition.",
+  ]);
+});
+
+test("long answers keep every sentence, not just the first few", () => {
+  const answer = Array.from({ length: 30 }, (_, i) => `Point number ${i + 1} matters here.`).join(" ");
+  const sentences = answerSentences(answer);
+  assert.equal(sentences.length, 30);
+  assert.equal(sentences.at(-1), "Point number 30 matters here.");
 });
 
 test("skips the network call without a key", async () => {

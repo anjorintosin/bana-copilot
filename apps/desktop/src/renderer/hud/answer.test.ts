@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { answerPlainText, formatAnswer, texToText, timesSigns } from "./answer";
+import { answerPlainText, formatAnswer, inlinePlainText, texToText, timesSigns } from "./answer";
 
 test("multiplication stars become ×, markdown and code stay intact", () => {
   assert.equal(timesSigns("2*26*26 + 3*26 + 1"), "2×26×26 + 3×26 + 1");
@@ -10,6 +10,21 @@ test("multiplication stars become ×, markdown and code stay intact", () => {
   assert.equal(timesSigns("an *aside* note"), "an *aside* note");
   assert.equal(timesSigns("run `a*b` then 2*3"), "run `a*b` then 2×3");
   assert.match(formatAnswer("Total is 26 * 26 = 676 for **prefix a**."), /26 × 26 = 676 for <strong>prefix a<\/strong>/);
+});
+
+test("a flagged sentence reads the way the HUD displays it", () => {
+  assert.equal(inlinePlainText("That gives 2*26*52 prefixes for **each** key."), "That gives 2×26×52 prefixes for each key.");
+  assert.equal(inlinePlainText("It runs in $O(n\\log n)$ with `heapq` & a set."), "It runs in O(n log n) with heapq & a set.");
+  assert.equal(inlinePlainText("Run `2*26*52` to count."), "Run 2*26*52 to count.");
+});
+
+test("a flagged sentence is found verbatim in the rendered answer", () => {
+  const shown = formatAnswer("First, I mapped every `charge` path. `2*26*52` keys fit in **2*4 GB**.")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&");
+  for (const sentence of ["First, I mapped every `charge` path.", "`2*26*52` keys fit in **2*4 GB**."]) {
+    assert.ok(shown.includes(inlinePlainText(sentence)), `${inlinePlainText(sentence)} not in ${shown}`);
+  }
 });
 
 test("inline TeX becomes readable text", () => {

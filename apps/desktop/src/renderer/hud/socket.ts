@@ -158,11 +158,22 @@ export function connectGateway(hooks: SocketHooks) {
         renameQuestion(msg.questionId, msg.text);
       }
       if (msg.type === "answer.flag") {
-        flagAnswer(msg.questionId, msg.kind);
+        flagAnswer(msg.questionId, {
+          kind: msg.kind,
+          sentence: typeof msg.sentence === "string" ? msg.sentence : undefined,
+          replacement: typeof msg.replacement === "string" ? msg.replacement : undefined,
+        });
       }
       if (msg.type === "answer.started") {
         const turn = state.turns.find((item) => item.id === msg.questionId);
-        if (turn) turn.answer = "";
+        if (turn) {
+          turn.answer = "";
+          if (!turn.screenshot && state.pendingScreenshot) {
+            turn.screenshot = state.pendingScreenshot;
+            state.pendingScreenshot = undefined;
+            paintThread();
+          }
+        }
         if (!state.busy) setBusy(true, "Thinking…");
         if (viewingLive()) setAnswer("", true);
       }

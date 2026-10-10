@@ -456,8 +456,7 @@ export async function resolveAi(userId: string): Promise<AiResolve> {
   const creds = await loadUserKey(userId);
   if (creds) return { ok: true, creds };
 
-  const envKey =
-    process.env.NODE_ENV === "production" ? "" : process.env.OPENAI_API_KEY?.trim();
+  const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) {
     return {
       ok: true,
@@ -476,7 +475,7 @@ export async function resolveAi(userId: string): Promise<AiResolve> {
   return {
     ok: false,
     code: "need_key",
-    message: "Add your model key on the Plan page to try Bana Copilot.",
+    message: "Server AI key is not configured. Please ensure OPENAI_API_KEY is set in the server environment.",
   };
 }
 
