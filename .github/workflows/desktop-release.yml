@@ -39,20 +39,33 @@ jobs:
       - name: Load Mac signing certificate
         if: runner.os == 'macOS'
         env:
-          CSC_LINK: ${{ secrets.MAC_SIGNING_P12 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
+          P12: ${{ secrets.MAC_SIGNING_P12 }}
+          P12_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
         run: |
-          if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ]; then
+          set -euo pipefail
+          if [ -z "$P12" ] || [ -z "$P12_PASSWORD" ]; then
             echo "Add MAC_SIGNING_P12 and MAC_SIGNING_PASSWORD secrets for Mac signing."
             exit 1
           fi
-          echo "Mac signing certificate will be loaded by electron-builder via CSC_LINK."
+          keychain="$RUNNER_TEMP/build.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$keychain"
+
+          echo "Available codesigning identities in keychain:"
+          security find-identity -p codesigning "$keychain"
       - name: Pack desktop
         working-directory: apps/desktop
         shell: bash
-        env:
-          CSC_LINK: ${{ secrets.MAC_SIGNING_P12 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_SIGNING_PASSWORD }}
         run: |
           node scripts/build.mjs
           electron_version=$(node -p "require('electron/package.json').version")
@@ -78,15 +91,15 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: apps/desktop/release
         env:
-          CSC_LINK: ${{ secrets.MAC_SIGNING_P12 }}
+          HAS_P12: ${{ secrets.MAC_SIGNING_P12 != '' }}
         run: |
           set -euo pipefail
           for app in mac/"Bana Copilot.app" mac-arm64/"Bana Copilot.app"; do
             codesign --verify --deep --strict "$app"
             team=$(codesign -dvv "$app" 2>&1 | grep 'TeamIdentifier=' | head -n 1 | cut -d= -f2 || true)
-            if [ -n "$CSC_LINK" ]; then
+            if [ "$HAS_P12" = "true" ]; then
               if [ -z "$team" ] || [ "$team" = "not set" ]; then
-                echo "Error: $app was signed without a TeamIdentifier when CSC_LINK was provided."
+                echo "Error: $app was signed without a TeamIdentifier when signing credentials were provided."
                 exit 1
               fi
               echo "Signed with team: $team ✓"
