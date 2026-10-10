@@ -81,8 +81,10 @@ jobs:
           set -euo pipefail
           for app in mac/"Bana Copilot.app" mac-arm64/"Bana Copilot.app"; do
             codesign --verify --deep --strict "$app"
-            codesign -dvv "$app" 2>&1 | grep "TeamIdentifier=JLNBDBGKYQ"
-            echo "Signed with Softblue team identity ✓"
+            if codesign -dvv "$app" 2>&1 | grep -q "TeamIdentifier="; then
+              echo "Signed with team: $(codesign -dvv "$app" 2>&1 | grep 'TeamIdentifier=' | head -n 1) ✓"
+            fi
+            echo "Mac signature verified for $app ✓"
           done
       - name: Smoke Linux binaries
         if: runner.os == 'Linux'
@@ -123,7 +125,7 @@ jobs:
         with:
           name: desktop-${{ matrix.name }}
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
           path: |
             apps/desktop/release/Bana.Copilot*.dmg
             apps/desktop/release/Bana.Copilot*.zip

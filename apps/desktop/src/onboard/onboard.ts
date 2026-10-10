@@ -132,7 +132,7 @@ async function refreshPerms() {
     $.screenCheck.textContent = blocked ? "Open settings" : "Check";
   }
 
-  const meetingReady = loopbackOk || screen.ok;
+  const meetingReady = loopbackOk;
   if (meetingReady) {
     setBadge($.loopbackBadge, "ok", "Ready");
     $.loopbackHint.textContent = "Meeting audio is allowed.";
