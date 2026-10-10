@@ -235,10 +235,12 @@ function requestAssist(
   },
 ) {
   if (state.busy) {
+    state.pendingScreenshot = undefined;
     $.liveText.textContent = "Still working — wait for this answer.";
     return false;
   }
   if (state.socket?.readyState !== WebSocket.OPEN) {
+    state.pendingScreenshot = undefined;
     $.liveText.textContent = "Gateway offline — try again in a moment.";
     return false;
   }
@@ -261,6 +263,7 @@ async function requestScreenAssist() {
   $.liveText.textContent = "Solving what's on screen…";
   const shot = await grabShot();
   if (!shot.ok || !shot.jpegBase64) {
+    state.pendingScreenshot = undefined;
     setBusy(false);
     $.liveText.textContent =
       shot.error || "Could not capture the screen. Allow Screen Recording, then retry.";
@@ -268,6 +271,7 @@ async function requestScreenAssist() {
   }
   state.pendingScreenshot = shot.dataUrl || "";
   if (state.socket?.readyState !== WebSocket.OPEN) {
+    state.pendingScreenshot = undefined;
     setBusy(false);
     $.liveText.textContent = "Gateway offline — try again in a moment.";
     return;
@@ -299,13 +303,15 @@ async function triggerAssist() {
     if (typedImage && typedShot) {
       state.pendingScreenshot = typedShot.dataUrl || "";
     }
-    void requestAssist("ask", typed, { transcript: pack.transcript, jpegBase64: typedImage });
+    const sent = requestAssist("ask", typed, { transcript: pack.transcript, jpegBase64: typedImage });
+    if (!sent) state.pendingScreenshot = undefined;
     return;
   }
 
   const shot = screenAllowed() ? await grabShot() : null;
   const image = shot?.ok && shot.jpegBase64 ? shot.jpegBase64 : undefined;
   if (!image && !pack.question && !pack.transcript) {
+    state.pendingScreenshot = undefined;
     $.askInput.placeholder = screenAllowed()
       ? "No question yet — type one, or allow Screen Recording."
       : "No question yet — type one, or turn on Screen so I can see it.";
@@ -323,11 +329,16 @@ async function triggerAssist() {
     jpegBase64: image,
     transcript: pack.transcript,
   });
-  if (sent) markAssistAnswered(pack.to);
+  if (sent) {
+    markAssistAnswered(pack.to);
+  } else {
+    state.pendingScreenshot = undefined;
+  }
 }
 
 function clearContext() {
   clearAssistBuffer();
+  state.pendingScreenshot = undefined;
   send({ type: "context.clear", sessionId: state.sessionId || undefined });
   if (!state.sessionId) {
     resetCard("Ask anything, or press Assist.", "Answers show here when you press Enter or Assist.");

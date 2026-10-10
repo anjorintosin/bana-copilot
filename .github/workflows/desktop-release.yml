@@ -77,12 +77,23 @@ jobs:
       - name: Check Mac signature
         if: runner.os == 'macOS'
         working-directory: apps/desktop/release
+        env:
+          CSC_LINK: ${{ secrets.MAC_SIGNING_P12 }}
         run: |
           set -euo pipefail
           for app in mac/"Bana Copilot.app" mac-arm64/"Bana Copilot.app"; do
             codesign --verify --deep --strict "$app"
-            if codesign -dvv "$app" 2>&1 | grep -q "TeamIdentifier="; then
-              echo "Signed with team: $(codesign -dvv "$app" 2>&1 | grep 'TeamIdentifier=' | head -n 1) ✓"
+            team=$(codesign -dvv "$app" 2>&1 | grep 'TeamIdentifier=' | head -n 1 | cut -d= -f2 || true)
+            if [ -n "$CSC_LINK" ]; then
+              if [ -z "$team" ] || [ "$team" = "not set" ]; then
+                echo "Error: $app was signed without a TeamIdentifier when CSC_LINK was provided."
+                exit 1
+              fi
+              echo "Signed with team: $team ✓"
+            elif [ -n "$team" ] && [ "$team" != "not set" ]; then
+              echo "Signed with team: $team ✓"
+            else
+              echo "Warning: $app has ad-hoc signature (no TeamIdentifier)."
             fi
             echo "Mac signature verified for $app ✓"
           done

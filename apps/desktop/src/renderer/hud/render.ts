@@ -398,6 +398,7 @@ export function resetCard(message: string, answer: string) {
   state.viewIndex = -1;
   state.currentQuestionId = "";
   state.questionTranscript = "";
+  state.pendingScreenshot = undefined;
   $.histLabel.textContent = "Live";
   $.prevBtn.disabled = true;
   $.nextBtn.disabled = true;
