@@ -61,12 +61,10 @@ export function applyCollapsed(next: boolean) {
   state.collapsed = next;
   $.hud.classList.toggle("collapsed", next);
   setTip($.backBtn, next ? "Bana" : "Back");
-  const row = $.hud.querySelector(".icon-row");
-  const header = $.hud.querySelector("header");
   if (next) {
-    if (header && row) header.insertBefore($.askForm, row);
+    $.askInput.placeholder = "Ask anything or solve your screen";
   } else {
-    $.composer.append($.askForm);
+    $.askInput.placeholder = "Ask follow-up…";
   }
 }
 

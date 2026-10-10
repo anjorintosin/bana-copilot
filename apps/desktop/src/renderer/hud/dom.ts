@@ -18,6 +18,7 @@ export const $ = {
   launch: el<HTMLDivElement>("launch"),
   launchStart: el<HTMLButtonElement>("launch-start"),
   homeBtn: el<HTMLButtonElement>("home-btn"),
+  assistTopBtn: el<HTMLButtonElement>("assist-top-btn"),
   collapseBtn: el<HTMLButtonElement>("collapse-btn"),
   backBtn: el<HTMLButtonElement>("back-btn"),
   hideBtn: el<HTMLButtonElement>("hide-btn"),
