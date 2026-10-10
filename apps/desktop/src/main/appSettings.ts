@@ -123,20 +123,50 @@ export function attachShortcutHandlers(next: ShortcutHandlers) {
   return applyShortcuts();
 }
 
+declare const __BUILD_ID__: string | undefined;
+
 function onboardFile() {
   return path.join(app.getPath("userData"), "onboard.json");
 }
 
-/** Each newly downloaded version starts at onboarding once, so permissions get rechecked. */
+function currentBuildSignature() {
+  try {
+    if (!app.isPackaged) {
+      return `dev:${app.getVersion()}`;
+    }
+    const buildId = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "";
+    let execMtime = 0;
+    try {
+      execMtime = Math.floor(fs.statSync(process.execPath).mtimeMs);
+    } catch {
+      /* ignore */
+    }
+    return `${app.getVersion()}:${buildId}:${execMtime}:${app.getAppPath()}`;
+  } catch {
+    return `${app.getVersion()}:${app.getAppPath()}`;
+  }
+}
+
+/** Each newly downloaded version/build starts at onboarding once, so permissions get rechecked. */
 export function isOnboarded() {
   try {
     const saved = JSON.parse(fs.readFileSync(onboardFile(), "utf8"));
-    return saved.done === true && saved.version === app.getVersion();
+    if (saved.done !== true || saved.version !== app.getVersion()) return false;
+    if (!saved.buildSignature || saved.buildSignature !== currentBuildSignature()) return false;
+    return true;
   } catch {
     return false;
   }
 }
 
 export function markOnboarded() {
-  fs.writeFileSync(onboardFile(), JSON.stringify({ done: true, version: app.getVersion() }));
+  fs.writeFileSync(
+    onboardFile(),
+    JSON.stringify({
+      done: true,
+      version: app.getVersion(),
+      appPath: app.getAppPath(),
+      buildSignature: currentBuildSignature(),
+    }),
+  );
 }

@@ -12,6 +12,8 @@ function copyStatic() {
   cpSync("src/onboard/onboard.css", "dist/onboard.css");
 }
 
+const buildId = process.env.GITHUB_SHA || process.env.BUILD_ID || `${Date.now()}`;
+
 export const configs = [
   {
     entryPoints: ["src/main/index.ts"],
@@ -21,6 +23,9 @@ export const configs = [
     outfile: "dist/main.js",
     sourcemap: true,
     external: ["electron"],
+    define: {
+      __BUILD_ID__: JSON.stringify(buildId),
+    },
   },
   {
     entryPoints: ["src/preload/index.ts"],

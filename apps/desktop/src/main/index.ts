@@ -968,12 +968,18 @@ app.whenReady().then(async () => {
     move_left: () => nudgeHud(-60, 0),
     move_right: () => nudgeHud(60, 0),
   });
-  if (!isOnboarded()) openOnboard();
+  const permsGranted =
+    process.platform !== "darwin" ||
+    (screenStatus() === "granted" && micStatus() === "granted");
+  if (!isOnboarded() || !permsGranted) openOnboard();
   else showHud();
 });
 
 app.on("activate", () => {
-  if (!isOnboarded()) {
+  const permsGranted =
+    process.platform !== "darwin" ||
+    (screenStatus() === "granted" && micStatus() === "granted");
+  if (!isOnboarded() || !permsGranted) {
     openOnboard();
     return;
   }
