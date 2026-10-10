@@ -16,6 +16,7 @@ export type Turn = {
   answer: string;
   done: boolean;
   flag?: AnswerFlag;
+  screenshot?: string;
 };
 
 export const state = {
@@ -50,6 +51,7 @@ export const state = {
   sessionStartedAt: 0,
   clock: 0,
   turns: [] as Turn[],
+  pendingScreenshot: undefined as string | undefined,
   busy: false,
   modes: [] as AnswerMode[],
   activeModeId: "",

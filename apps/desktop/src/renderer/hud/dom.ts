@@ -34,8 +34,6 @@ export const $ = {
   answer: el<HTMLElement>("answer"),
   answerLoader: el<HTMLDivElement>("answer-loader"),
   answerLoaderText: el<HTMLParagraphElement>("answer-loader-text"),
-  shotChip: el<HTMLDivElement>("shot-chip"),
-  shotPreview: el<HTMLImageElement>("shot-preview"),
   actions: el<HTMLDivElement>("actions"),
   askForm: el<HTMLFormElement>("ask-form"),
   askInput: el<HTMLInputElement>("ask-input"),

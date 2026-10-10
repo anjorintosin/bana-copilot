@@ -1063,25 +1063,57 @@ input[type="text"]:focus-visible {
 .shot-chip {
   position: relative;
   align-self: flex-start;
-  margin-top: 6px;
-  padding: 4px 8px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 2px;
+  padding: 3px 9px;
+  border-radius: 999px;
   background: rgba(39, 39, 46, 0.92);
-  color: #a1a1aa;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d4d4d8;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 550;
+  line-height: 1.2;
+  cursor: pointer;
   -webkit-app-region: no-drag;
+  user-select: none;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.shot-chip:hover {
+  background: rgba(55, 55, 65, 0.98);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.shot-chip svg,
+.shot-chip .shot-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: #a1a1aa;
+}
+
+.shot-chip:hover svg,
+.shot-chip:hover .shot-icon {
+  color: #e4e4e7;
 }
 
 .shot-chip img {
   display: none;
   position: absolute;
   left: 0;
-  bottom: calc(100% + 6px);
-  width: 220px;
+  top: calc(100% + 6px);
+  width: 260px;
+  max-width: 85vw;
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  z-index: 3;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+  background: #18181b;
+  z-index: 60;
+  pointer-events: none;
 }
 
 .shot-chip:hover img {

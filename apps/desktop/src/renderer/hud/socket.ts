@@ -166,7 +166,14 @@ export function connectGateway(hooks: SocketHooks) {
       }
       if (msg.type === "answer.started") {
         const turn = state.turns.find((item) => item.id === msg.questionId);
-        if (turn) turn.answer = "";
+        if (turn) {
+          turn.answer = "";
+          if (!turn.screenshot && state.pendingScreenshot) {
+            turn.screenshot = state.pendingScreenshot;
+            state.pendingScreenshot = undefined;
+            paintThread();
+          }
+        }
         if (!state.busy) setBusy(true, "Thinking…");
         if (viewingLive()) setAnswer("", true);
       }
