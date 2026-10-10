@@ -45,6 +45,7 @@ import {
 import {
   attachHudOverlay,
   hudWindowOptions,
+  nudgeHud,
   setHudKeyboard,
   setOverlaySession,
   showHudInactive,
@@ -75,7 +76,7 @@ let menuOpen = false;
 let displayIndex = 0;
 let quitting = false;
 
-const COLLAPSED = { width: 560, height: 72 };
+const COLLAPSED = { width: 520, height: 96 };
 const EXPANDED = { width: 780, height: 520 };
 const LOCAL_HTTP = "http://127.0.0.1:8787";
 const LOCAL_WS = "ws://127.0.0.1:8787/ws";
@@ -122,7 +123,7 @@ function applyRemote() {
   } catch {
     /* no override */
   }
-  if (app.isPackaged && PRODUCTION_HTTP) {
+  if (app.isPackaged && PRODUCTION_HTTP && !PRODUCTION_HTTP.includes("[IP_ADDRESS]")) {
     HTTP = PRODUCTION_HTTP;
     WS = PRODUCTION_WS || wsFromHttp(PRODUCTION_HTTP);
     return;
@@ -962,6 +963,10 @@ app.whenReady().then(async () => {
     share: () => win?.webContents.send("hud:share"),
     clear: () => win?.webContents.send("context:clear"),
     interact: () => toggleHudInteract(),
+    move_up: () => nudgeHud(0, -60),
+    move_down: () => nudgeHud(0, 60),
+    move_left: () => nudgeHud(-60, 0),
+    move_right: () => nudgeHud(60, 0),
   });
   if (!isOnboarded()) openOnboard();
   else showHud();

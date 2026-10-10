@@ -42,12 +42,6 @@ const $ = {
   knowledgeSave: document.getElementById("knowledge-save") as HTMLButtonElement,
   knowledgeStatus: document.getElementById("knowledge-status") as HTMLParagraphElement,
   quitBtn: document.getElementById("quit-btn") as HTMLButtonElement,
-  keyHint: document.getElementById("key-hint") as HTMLParagraphElement,
-  keyProvider: document.getElementById("key-provider") as HTMLSelectElement,
-  keyValue: document.getElementById("key-value") as HTMLInputElement,
-  keyStatus: document.getElementById("key-status") as HTMLParagraphElement,
-  keySave: document.getElementById("key-save") as HTMLButtonElement,
-  keyClear: document.getElementById("key-clear") as HTMLButtonElement,
   modesCards: document.getElementById("modes-cards") as HTMLDivElement,
   modeEditor: document.getElementById("mode-editor") as HTMLDivElement,
   modeNew: document.getElementById("mode-new") as HTMLButtonElement,
@@ -309,54 +303,9 @@ function renderSessions(rows: SessionRow[]) {
   );
 }
 
-function fillKey(account: Account) {
-  $.keyHint.textContent = account.key.configured
-    ? `Saved ${account.key.provider ?? "key"} ending ${account.key.last4}.`
-    : "Required before Assist can answer.";
-  if (account.key.provider && ["openai", "claude", "grok"].includes(account.key.provider)) {
-    $.keyProvider.value = account.key.provider;
-  }
-  $.keyStatus.textContent = "";
+function fillKey(_account: Account) {
+  // Model key is provided centrally from environment
 }
-
-$.keyValue.addEventListener("input", () => {
-  const value = $.keyValue.value.trim();
-  if (value.startsWith("sk-ant-")) $.keyProvider.value = "claude";
-  else if (value.startsWith("xai-")) $.keyProvider.value = "grok";
-});
-
-$.keySave.addEventListener("click", async () => {
-  if (!token) return;
-  $.keyStatus.textContent = "Checking this key…";
-  $.keySave.disabled = true;
-  try {
-    const next = await window.copilot.billingSaveKey(token, {
-      provider: $.keyProvider.value,
-      apiKey: sanitizeSecret($.keyValue.value),
-    });
-    if (next.error) {
-      $.keyStatus.textContent = next.error;
-      return;
-    }
-    $.keyValue.value = "";
-    fillKey(next);
-    $.keyStatus.textContent = "Key saved.";
-  } catch (err) {
-    $.keyStatus.textContent = err instanceof Error ? err.message : "Could not save.";
-  } finally {
-    $.keySave.disabled = false;
-  }
-});
-
-$.keyClear.addEventListener("click", async () => {
-  if (!token) return;
-  const next = await window.copilot.billingClearKey(token);
-  if (!next.error) {
-    $.keyValue.value = "";
-    fillKey(next);
-    $.keyStatus.textContent = "Key removed.";
-  }
-});
 
 function renderShortcuts(settings: AppSettings) {
   currentSettings = settings;

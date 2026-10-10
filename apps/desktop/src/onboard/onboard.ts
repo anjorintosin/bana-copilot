@@ -1,4 +1,3 @@
-import { LIMITS, sanitizeSecret, sanitizeText } from "@meeting-copilot/types";
 import {
   loopbackDeniedCopy,
   markHostPlatform,
@@ -11,18 +10,9 @@ import "../renderer/hud/bridge";
 
 markHostPlatform(window.copilot?.platform);
 
-type Step = "key" | "knowledge" | "perms" | "done";
+type Step = "perms" | "done";
 
 const $ = {
-  keyProvider: document.getElementById("key-provider") as HTMLSelectElement,
-  keyValue: document.getElementById("key-value") as HTMLInputElement,
-  keyStatus: document.getElementById("key-status") as HTMLParagraphElement,
-  keyContinue: document.getElementById("key-continue") as HTMLButtonElement,
-  knowledgeText: document.getElementById("knowledge-text") as HTMLTextAreaElement,
-  knowledgeFile: document.getElementById("knowledge-file") as HTMLInputElement,
-  knowledgeStatus: document.getElementById("knowledge-status") as HTMLParagraphElement,
-  knowledgeSkip: document.getElementById("knowledge-skip") as HTMLButtonElement,
-  knowledgeContinue: document.getElementById("knowledge-continue") as HTMLButtonElement,
   assistChord: document.getElementById("assist-chord") as HTMLElement,
   assistHint: document.getElementById("assist-hint") as HTMLSpanElement,
   assistBadge: document.getElementById("assist-badge") as HTMLSpanElement,
@@ -43,7 +33,6 @@ const $ = {
 };
 
 let token = "";
-let pendingPdf: { name: string; data: string } | null = null;
 let assistAccel = "CommandOrControl+Enter";
 let assistOk = false;
 let listeningAssist = false;
@@ -56,7 +45,7 @@ function needsLoopback() {
 }
 
 function show(step: Step) {
-  for (const id of ["key", "knowledge", "perms", "done"]) {
+  for (const id of ["perms", "done"]) {
     const el = document.getElementById(`step-${id}`);
     if (el) el.hidden = id !== step;
   }
@@ -67,7 +56,7 @@ function show(step: Step) {
       $.assistChord = document.getElementById("assist-chord") as HTMLElement;
     }
     startAssistCheck();
-    void grantAllPerms();
+    void refreshPerms();
   } else {
     stopAssistCheck();
   }
@@ -75,7 +64,13 @@ function show(step: Step) {
 
 function setBadge(el: HTMLElement, kind: "ok" | "wait" | "bad" | "", text: string) {
   el.className = kind ? `perm-badge ${kind}` : "perm-badge";
-  el.textContent = text;
+  if (kind === "ok") {
+    el.innerHTML = "✓";
+    el.title = "Ready";
+  } else {
+    el.textContent = text;
+    el.removeAttribute("title");
+  }
 }
 
 function assistChordLabel() {
@@ -102,12 +97,6 @@ function stopAssistCheck() {
   window.removeEventListener("keydown", onAssistKey);
 }
 
-function actionLabel(ok: boolean, status?: string) {
-  if (ok || status === "granted") return "Recheck";
-  if (status === "denied") return "Open settings";
-  return "Allow";
-}
-
 async function refreshPerms() {
   if (!window.copilot) return;
   if ($.permsLede) $.permsLede.textContent = permissionIntro(window.copilot.platform);
@@ -117,36 +106,43 @@ async function refreshPerms() {
   if (mic === "granted" || micOk) {
     setBadge($.audioBadge, "ok", "Ready");
     $.audioHint.textContent = "Microphone is allowed.";
+    $.audioCheck.hidden = true;
   } else {
     setBadge($.audioBadge, mic === "denied" ? "bad" : "wait", mic === "denied" ? "Blocked" : "Needed");
     $.audioHint.textContent =
       mic === "denied"
         ? `Turn on ${appName} in Microphone settings, then recheck.`
         : "Listen uses your mic when you ask it to.";
+    $.audioCheck.hidden = false;
+    $.audioCheck.textContent = mic === "denied" ? "Open settings" : "Check";
   }
-  $.audioCheck.textContent = actionLabel(mic === "granted" || micOk, mic);
 
   const screen = await window.copilot.probeScreen();
   if (screen.ok) {
     setBadge($.screenBadge, "ok", "Ready");
     $.screenHint.textContent = "Screen capture is allowed.";
+    $.screenCheck.hidden = true;
   } else {
     const blocked = screen.status === "denied";
     setBadge($.screenBadge, blocked ? "bad" : "wait", blocked ? "Blocked" : "Needed");
     $.screenHint.textContent = blocked
       ? `Turn on ${screen.listName} in Screen Recording, then recheck.`
       : "Assist can see what’s on your display.";
+    $.screenCheck.hidden = false;
+    $.screenCheck.textContent = blocked ? "Open settings" : "Check";
   }
-  $.screenCheck.textContent = actionLabel(screen.ok, screen.status);
 
-  if (loopbackOk) {
+  const meetingReady = loopbackOk || screen.ok;
+  if (meetingReady) {
     setBadge($.loopbackBadge, "ok", "Ready");
     $.loopbackHint.textContent = "Meeting audio is allowed.";
+    $.loopbackCheck.hidden = true;
   } else {
     setBadge($.loopbackBadge, "wait", "Needed");
     $.loopbackHint.textContent = "Zoom, Meet, and Teams — not your microphone.";
+    $.loopbackCheck.hidden = false;
+    $.loopbackCheck.textContent = "Check";
   }
-  $.loopbackCheck.textContent = loopbackOk ? "Recheck" : "Allow";
 }
 
 async function allowMic(openSettings: boolean) {
@@ -188,130 +184,6 @@ async function allowLoopback(openSettings: boolean) {
     }
   }
 }
-
-async function grantAllPerms() {
-  if (granting || !window.copilot) return;
-  granting = true;
-  $.permStatus.textContent = "Allow the prompts that appear…";
-  try {
-    await allowMic(false);
-    await allowScreen(false);
-    if (needsLoopback()) await allowLoopback(false);
-    await refreshPerms();
-    $.permStatus.textContent = "";
-  } finally {
-    granting = false;
-  }
-}
-
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = "";
-  const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + step));
-  }
-  return btoa(binary);
-}
-
-$.keyValue.addEventListener("input", () => {
-  const value = $.keyValue.value.trim();
-  if (value.startsWith("sk-ant-")) $.keyProvider.value = "claude";
-  else if (value.startsWith("xai-")) $.keyProvider.value = "grok";
-});
-
-$.keyContinue.addEventListener("click", async () => {
-  if (!token) return;
-  const raw = $.keyValue.value.trim();
-  if (!raw) {
-    try {
-      const account = await window.copilot.getAccount(token);
-      if (account.key.configured) {
-        show("knowledge");
-        return;
-      }
-    } catch {
-      /* fall through */
-    }
-    $.keyStatus.textContent = "Paste a key to continue.";
-    return;
-  }
-  $.keyContinue.disabled = true;
-  $.keyStatus.textContent = "Checking this key…";
-  try {
-    const next = await window.copilot.billingSaveKey(token, {
-      provider: $.keyProvider.value,
-      apiKey: sanitizeSecret($.keyValue.value),
-    });
-    if (next.error) {
-      $.keyStatus.textContent = next.error;
-      return;
-    }
-    show("knowledge");
-  } catch (err) {
-    $.keyStatus.textContent = err instanceof Error ? err.message : "Could not save key.";
-  } finally {
-    $.keyContinue.disabled = false;
-  }
-});
-
-$.knowledgeFile.addEventListener("change", async () => {
-  const file = $.knowledgeFile.files?.[0];
-  if (!file) return;
-  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-  if (isPdf) {
-    if (file.size > 8_000_000) {
-      $.knowledgeStatus.textContent = "File is too large (max 8 MB).";
-      return;
-    }
-    pendingPdf = { name: file.name, data: bytesToBase64(new Uint8Array(await file.arrayBuffer())) };
-    $.knowledgeText.value = "";
-    $.knowledgeStatus.textContent = file.name;
-    return;
-  }
-  pendingPdf = null;
-  $.knowledgeText.value = await file.text();
-  $.knowledgeStatus.textContent = file.name;
-});
-
-async function saveKnowledge() {
-  if (!token) return true;
-  const text = $.knowledgeText.value.trim();
-  if (!pendingPdf && !text) return true;
-  const listed = await window.copilot.listModes(token);
-  const general = listed.modes?.find((item) => item.builtin) ?? listed.modes?.[0];
-  if (listed.error || !general) {
-    const result = await window.copilot.saveResume(token, {
-      title: pendingPdf?.name || "General knowledge",
-      text: pendingPdf ? undefined : sanitizeText(text, { max: LIMITS.document }),
-      pdfBase64: pendingPdf?.data,
-    });
-    if (result.error) {
-      $.knowledgeStatus.textContent = result.error;
-      return false;
-    }
-    return true;
-  }
-  const result = await window.copilot.addModeDocument(token, general.id, {
-    title: pendingPdf?.name || "General knowledge",
-    text: pendingPdf ? undefined : sanitizeText(text, { max: LIMITS.document }),
-    pdfBase64: pendingPdf?.data,
-  });
-  if (result.error) {
-    $.knowledgeStatus.textContent = result.error;
-    return false;
-  }
-  return true;
-}
-
-$.knowledgeSkip.addEventListener("click", () => show("perms"));
-$.knowledgeContinue.addEventListener("click", async () => {
-  $.knowledgeContinue.disabled = true;
-  try {
-    if (await saveKnowledge()) show("perms");
-  } finally {
-    $.knowledgeContinue.disabled = false;
-  }
-});
 
 $.audioCheck.addEventListener("click", async () => {
   $.audioCheck.disabled = true;
@@ -370,13 +242,10 @@ async function boot() {
     if ($.assistChord) $.assistChord.textContent = chord;
     const auth = await window.copilot.ensureAuth();
     token = auth.token;
-    const account = await window.copilot.getAccount(token);
-    if (account.key.configured) {
-      $.keyStatus.textContent = `A key is already saved (${account.key.provider ?? "key"} …${account.key.last4}). Continue, or replace it.`;
-    }
-  } catch (err) {
-    $.keyStatus.textContent = err instanceof Error ? err.message : "Could not reach the API.";
+  } catch {
+    /* non-blocking */
   }
+  show("perms");
 }
 
 boot();

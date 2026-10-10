@@ -60,21 +60,25 @@ export function attachHudOverlay(win: BrowserWindow) {
   win.setIgnoreMouseEvents(false);
 
   ipcMain.on("hud:move-by", (_e, dx: number, dy: number) => {
-    if (!hud || typeof dx !== "number" || typeof dy !== "number") return;
-    try {
-      const bounds = hud.getBounds();
-      const display = screen.getDisplayMatching(bounds);
-      const pos = clampHud(
-        bounds.x + dx,
-        bounds.y + dy,
-        bounds,
-        display.workArea,
-      );
-      hud.setPosition(pos.x, pos.y);
-    } catch {
-      /* display query can fail during sleep / display change */
-    }
+    nudgeHud(dx, dy);
   });
+}
+
+export function nudgeHud(dx: number, dy: number) {
+  if (!hud || typeof dx !== "number" || typeof dy !== "number") return;
+  try {
+    const bounds = hud.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const pos = clampHud(
+      bounds.x + dx,
+      bounds.y + dy,
+      bounds,
+      display.workArea,
+    );
+    hud.setPosition(pos.x, pos.y);
+  } catch {
+    /* display query can fail during sleep / display change */
+  }
 }
 
 function pinHud(win: BrowserWindow) {
