@@ -6,6 +6,7 @@ import {
   applySessionClock,
   liveTurn,
   paintStages,
+  paintThread,
   prettyKind,
   renderTurn,
   resetCard,
@@ -241,6 +242,7 @@ export function connectGateway(hooks: SocketHooks) {
         hooks.openHistoryAfterEnd(endedId);
       }
       if (msg.type === "context.cleared") {
+        setBusy(false);
         state.inferredStage = "auto";
         paintStages();
         clearAssistBuffer();
@@ -266,8 +268,18 @@ export function connectGateway(hooks: SocketHooks) {
         }
       }
       if (msg.type === "answer.cancelled") {
-        setBusy(false);
-        $.liveText.textContent = "Answer cancelled";
+        // A newer question replaced this answer, so stay busy: the newer answer is on its way.
+        // Drop the card if nothing was written yet.
+        const index = state.turns.findIndex((item) => item.id === msg.questionId);
+        const turn = state.turns[index];
+        if (turn) {
+          turn.done = true;
+          if (!turn.answer.trim()) {
+            state.turns.splice(index, 1);
+            if (state.viewIndex >= state.turns.length) state.viewIndex = state.turns.length - 1;
+          }
+          paintThread();
+        }
       }
     } catch {
       /* ignore */

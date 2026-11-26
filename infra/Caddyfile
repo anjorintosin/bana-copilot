@@ -1,0 +1,6 @@
+# TLS in front of the API. Caddy gets and renews the Let's Encrypt certificate for
+# PUBLIC_HOST on its own, and proxies WebSockets (/ws) without extra config.
+{$PUBLIC_HOST} {
+	encode zstd gzip
+	reverse_proxy api:8787
+}

@@ -234,11 +234,7 @@ function requestAssist(
     images?: { imageBase64: string; mimeType?: string }[];
   },
 ) {
-  if (state.busy) {
-    state.pendingScreenshot = undefined;
-    $.liveText.textContent = "Still working — wait for this answer.";
-    return false;
-  }
+  // A new request while an answer is streaming replaces it; the server stops the old one.
   if (state.socket?.readyState !== WebSocket.OPEN) {
     state.pendingScreenshot = undefined;
     $.liveText.textContent = "Gateway offline — try again in a moment.";
@@ -255,10 +251,6 @@ async function watchAndSolveScreen() {
 }
 
 async function requestScreenAssist() {
-  if (state.busy) {
-    $.liveText.textContent = "Still working — wait for this answer.";
-    return;
-  }
   setBusy(true, "Solving what's on screen…");
   $.liveText.textContent = "Solving what's on screen…";
   const shot = await grabShot();
@@ -297,20 +289,22 @@ async function triggerAssist() {
   const pack = sliceAssistWindow();
 
   if (typed) {
-    $.askInput.value = "";
     const typedShot = screenAllowed() && asksAboutScreen(typed) ? await grabShot() : null;
     const typedImage = typedShot?.ok && typedShot.jpegBase64 ? typedShot.jpegBase64 : undefined;
     if (typedImage && typedShot) {
       state.pendingScreenshot = typedShot.dataUrl || "";
     }
     const sent = requestAssist("ask", typed, { transcript: pack.transcript, jpegBase64: typedImage });
-    if (!sent) state.pendingScreenshot = undefined;
+    // Keep what they typed if it could not be sent, so one more Enter retries it.
+    if (sent) $.askInput.value = "";
+    else state.pendingScreenshot = undefined;
     return;
   }
 
   const shot = screenAllowed() ? await grabShot() : null;
   const image = shot?.ok && shot.jpegBase64 ? shot.jpegBase64 : undefined;
-  if (!image && !pack.question && !pack.transcript) {
+  // In a session the server holds the whole transcript and decides what to answer.
+  if (!image && !pack.question && !pack.transcript && !state.sessionId && !state.turns.length) {
     state.pendingScreenshot = undefined;
     $.askInput.placeholder = screenAllowed()
       ? "No question yet — type one, or allow Screen Recording."
@@ -325,7 +319,9 @@ async function triggerAssist() {
   if (image && shot) {
     state.pendingScreenshot = shot.dataUrl || "";
   }
-  const sent = requestAssist("assist", pack.question || undefined, {
+  // No text: the server answers whatever was said since the last answer, using the full
+  // conversation, and only falls back to the screen when nothing new was said.
+  const sent = requestAssist("assist", undefined, {
     jpegBase64: image,
     transcript: pack.transcript,
   });
@@ -621,7 +617,7 @@ $.smartBtn.addEventListener("click", () => {
   state.smartMode = !state.smartMode;
   $.smartBtn.setAttribute("aria-pressed", state.smartMode ? "true" : "false");
   $.liveText.textContent = state.smartMode
-    ? "Smart Mode on — coding and screen use the stronger model."
+    ? "Smart Mode on — answers think longer before they start."
     : "Smart Mode off.";
 });
 

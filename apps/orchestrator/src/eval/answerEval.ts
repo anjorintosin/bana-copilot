@@ -14,7 +14,7 @@ import { routeQuestion } from "../agents/router.js";
 import { collectAnswer, resolveSpecialist } from "../engine.js";
 import { completeChat } from "../llm/chat.js";
 import { models } from "../llm/client.js";
-import { KNOWLEDGE_IN_BRIEF, assistScreenAsk, formatCandidateBrief } from "../llm/prompts.js";
+import { ASSIST_SCREEN_ASK, KNOWLEDGE_IN_BRIEF, formatCandidateBrief } from "../llm/prompts.js";
 import { chunkKnowledge } from "../modeKnowledge.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -418,7 +418,8 @@ async function runCase(item: Case, run: number) {
   const result =
     item.kind === "screen"
       ? await collectAnswer({
-          question: assistScreenAsk(item.said),
+          question: ASSIST_SCREEN_ASK,
+          conversation: item.said ? `Them: ${item.said}` : undefined,
           specialist: resolveSpecialist("coding"),
           track: "software",
           brief,

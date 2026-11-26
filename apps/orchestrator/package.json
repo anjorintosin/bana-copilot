@@ -11,7 +11,7 @@
     "replay": "tsx src/eval/replay.ts",
     "eval:answers": "tsx src/eval/answerEval.ts",
     "eval:grounding": "tsx src/eval/groundingEval.ts",
-    "test": "tsx --test src/modeKnowledge.test.ts src/agents/router.test.ts src/grounding.test.ts src/actions.test.ts"
+    "test": "tsx --test src/modeKnowledge.test.ts src/agents/router.test.ts src/grounding.test.ts src/actions.test.ts src/assist.test.ts"
   },
   "dependencies": {
     "@meeting-copilot/types": "0.1.0",

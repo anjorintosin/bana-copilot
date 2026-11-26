@@ -1,3 +1,6 @@
-/** Filled after EC2 is up. Packaged builds use these instead of localhost. */
-export const PRODUCTION_HTTP = "http://16.192.176.196:8787";
-export const PRODUCTION_WS = "ws://16.192.176.196:8787/ws";
+/**
+ * Packaged builds use these instead of localhost. Caddy (infra/Caddyfile) serves TLS for this
+ * host; deploy the server change before releasing a build that points here.
+ */
+export const PRODUCTION_HTTP = "https://16-192-176-196.sslip.io";
+export const PRODUCTION_WS = "wss://16-192-176-196.sslip.io/ws";

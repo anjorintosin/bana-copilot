@@ -60,7 +60,6 @@ test("Cluely-shaped coding answer renders bold lead, ordered steps, and notes", 
       "",
       "Each valid pair is counted exactly once.",
     ].join("\n"),
-    true,
   );
   assert.match(html, /<p>Use <strong>centroid decomposition<\/strong> in <span class="math">/);
   assert.match(html, /<ol class="ans-list"><li><span class="ans-num">1\.<\/span> Collect distances/);

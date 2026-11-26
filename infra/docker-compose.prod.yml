@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: copilot
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-copilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (infra/ensure-env.sh does it)}
       POSTGRES_DB: meeting_copilot
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -34,6 +34,7 @@ services:
       redis:
         condition: service_healthy
     ports:
+      # Still published so desktop builds made before HTTPS keep working. New builds use Caddy.
       - "8787:8787"
     env_file:
       - ../.env
@@ -41,11 +42,29 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 8787
-      DATABASE_URL: postgres://copilot:${POSTGRES_PASSWORD:-copilot}@postgres:5432/meeting_copilot
+      DATABASE_URL: postgres://copilot:${POSTGRES_PASSWORD}@postgres:5432/meeting_copilot
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-change-me-on-the-box}
-      CREDENTIALS_SECRET: ${CREDENTIALS_SECRET:-change-me-on-the-box}
-      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://127.0.0.1:8787}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (infra/ensure-env.sh does it)}
+      CREDENTIALS_SECRET: ${CREDENTIALS_SECRET:?Set CREDENTIALS_SECRET in .env (infra/ensure-env.sh does it)}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:?Set PUBLIC_APP_URL in .env}
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST in .env (infra/ensure-env.sh does it)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

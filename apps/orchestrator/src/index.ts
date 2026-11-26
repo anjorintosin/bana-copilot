@@ -12,9 +12,10 @@ import {
   overlapsAnswer,
   sameQuestion,
 } from "./questions.js";
-import { aiStatus, runWithAi, type AiCreds } from "./llm/client.js";
+import { aiStatus, models, runWithAi, type AiCreds } from "./llm/client.js";
+import { completeChat } from "./llm/chat.js";
 import { analyzeScreen, type ScreenAnalysis } from "./llm/vision.js";
-import { KNOWLEDGE_IN_BRIEF, assistScreenAsk } from "./llm/prompts.js";
+import { ASK_TITLE_PROMPT, ASSIST_SCREEN_ASK, KNOWLEDGE_IN_BRIEF } from "./llm/prompts.js";
 import { chunkKnowledge, pickKnowledge } from "./modeKnowledge.js";
 import { fixUnsupported, flagFromScores, scoreGrounding } from "./grounding.js";
 import { jevEnabled } from "./llm/jev.js";
@@ -28,15 +29,7 @@ import {
   toSpoken,
 } from "./engine.js";
 import { formatStory, specialistNeedsStory } from "./stories.js";
-import {
-  formatPacketPrompt,
-  isJunkScreenText,
-  looksLikeAlgoProblem,
-  looksLikeCompleteCodingProblem,
-  markAnswered,
-  mergeScreenPacket,
-  type ScreenPacket,
-} from "./screenPacket.js";
+import { formatPacketPrompt, type ScreenPacket } from "./screenPacket.js";
 import { RealtimeTranscriber } from "./stt/realtime.js";
 import { WhisperTranscriber } from "./stt/whisper.js";
 import { TurnAssembler } from "./turns.js";
@@ -49,7 +42,8 @@ import {
   isShallowProbe,
   type InterviewerIntent,
 } from "./intent.js";
-import { assistPrompt, refersToScreen } from "./actions.js";
+import { assistPrompt } from "./actions.js";
+import { buildConversation, pickAssistTarget } from "./assist.js";
 import {
   emptyClaims,
   formatClaims,
@@ -68,11 +62,23 @@ import {
   refineClaims,
 } from "./claims.js";
 
-type Turn = { question: string; kind: string; answer: string };
+type Turn = { question: string; kind: string; answer: string; at: number };
+
+/** One finished stretch of transcribed speech, kept for the whole session. */
+type Segment = { at: number; text: string; source: AudioSource };
 
 type ScreenCtx = ScreenAnalysis & { at: number };
 
 type SessionMemory = {
+  startedAt: number;
+  /** Every transcribed segment this session, oldest first. */
+  transcript: Segment[];
+  /** Text the live transcriber has streamed for speech that has not finished yet. */
+  partial: string;
+  /** Speech up to this moment was already answered; anything later is the new ask. */
+  answeredAt: number;
+  /** Bumped by every Assist request; an answer whose generation is stale stops streaming. */
+  generation: number;
   recent: string[];
   cleanRecent: string[];
   lastQuestion: string;
@@ -112,6 +118,11 @@ function mem(sessionId: string): SessionMemory {
   const existing = memory.get(sessionId);
   if (existing) return existing;
   const created: SessionMemory = {
+    startedAt: Date.now(),
+    transcript: [],
+    partial: "",
+    answeredAt: 0,
+    generation: 0,
     recent: [],
     cleanRecent: [],
     lastQuestion: "",
@@ -237,6 +248,12 @@ type CueOpts = {
   displayText?: string;
   /** Resolves to a readable question title that replaces displayText once known. */
   questionTitle?: Promise<string | null>;
+  /** The whole conversation so far, from buildConversation. */
+  conversation?: string;
+  /** The Assist request this answer belongs to; a newer one replaces it. */
+  generation?: number;
+  /** Smart Mode: think harder before answering. */
+  deep?: boolean;
 };
 
 function screenTitle(analysis: ScreenAnalysis) {
@@ -289,6 +306,44 @@ function withSessionAi<T>(sessionId: string, fn: () => T): T {
   return runWithAi(mem(sessionId).ai, fn);
 }
 
+/** Most segments one session keeps. A long interview is a few hundred. */
+const TRANSCRIPT_MAX = 6_000;
+/** Longest wait for the transcriber to finish the words said just before Assist. */
+const SETTLE_MS = 1_600;
+
+/** Finish transcribing the last thing said, so Assist sees it. No-op when not listening. */
+async function settleSpeech(sessionId: string) {
+  const session = listening.get(sessionId);
+  if (!session?.transcriber.flush || recovering.has(sessionId)) return;
+  try {
+    await session.transcriber.flush(SETTLE_MS);
+  } catch {
+    /* answer with what we have */
+  }
+}
+
+/** A short readable title for what was just asked, shown in the HUD once known. */
+async function titleLatestAsk(sessionId: string, said: string): Promise<string | null> {
+  const text = said.trim().slice(-1_500);
+  if (!text) return null;
+  try {
+    const raw = await withSessionAi(sessionId, () =>
+      completeChat({
+        system: ASK_TITLE_PROMPT,
+        user: text,
+        model: models().nano,
+        temperature: 0,
+        maxTokens: 80,
+      }),
+    );
+    const title = raw.trim().replace(/^["'“]+|["'”]+$/g, "");
+    if (!title || /^none\.?$/i.test(title)) return null;
+    return title.slice(0, 200);
+  } catch {
+    return null;
+  }
+}
+
 async function streamCueCard(
   sessionId: string,
   classified: { kind: string; text: string; intent?: InterviewerIntent },
@@ -305,6 +360,7 @@ async function streamCueCard(
   );
 }
 
+/** Streams one answer. Resolves true when it finished, false when skipped, replaced, or failed. */
 async function streamCueCardInner(
   sessionId: string,
   classified: { kind: string; text: string; intent?: InterviewerIntent },
@@ -313,7 +369,7 @@ async function streamCueCardInner(
   source: "audio" | "screen" | "assist" = "audio",
   smart = false,
   opts?: CueOpts,
-) {
+): Promise<boolean> {
   const state = mem(sessionId);
   const key = normalizeQuestion(classified.text);
   const cooldown = source === "assist" ? 0 : source === "screen" ? 40_000 : 25_000;
@@ -322,17 +378,12 @@ async function streamCueCardInner(
     sameQuestion(key, state.lastQuestion) &&
     Date.now() - state.lastAskedAt < cooldown
   ) {
-    return;
+    return false;
   }
-  if (state.answering) {
-    if (source !== "assist") return;
-    await emit({
-      type: "session.error",
-      code: "busy",
-      message: "Still answering — try again in a moment.",
-    });
-    return;
-  }
+  if (state.answering && source !== "assist") return false;
+  // The newest Assist wins: an answer still streaming sees the bumped generation and stops.
+  const generation = opts?.generation ?? ++state.generation;
+  if (generation !== state.generation) return false;
 
   state.lastQuestion = key;
   state.lastAskedAt = Date.now();
@@ -344,10 +395,11 @@ async function streamCueCardInner(
     state.inferredStage = stage;
     await emit({ type: "session.stage", stage, inferred: true });
   }
-  const turnRecord = {
+  const turnRecord: Turn = {
     question: opts?.displayText ?? classified.text,
     kind: classified.kind,
     answer: "",
+    at: Date.now(),
   };
   await emit({
     type: "question.detected",
@@ -358,7 +410,7 @@ async function streamCueCardInner(
     source,
   });
   void opts?.questionTitle?.then(async (title) => {
-    if (!title) return;
+    if (!title || generation !== state.generation) return;
     turnRecord.question = title;
     await emit({ type: "question.updated", questionId, text: title });
   }).catch(() => undefined);
@@ -384,6 +436,7 @@ async function streamCueCardInner(
       }
     }
 
+    let replaced = false;
     for await (const delta of streamAnswer({
       question: classified.text,
       specialist,
@@ -393,11 +446,13 @@ async function streamCueCardInner(
       brief: state.brief,
       knowledge: state.knowledge,
       ragContext,
-      prior: groundToScreen ? [] : state.turns,
+      prior: state.turns,
+      conversation: opts?.conversation,
       screenContext: formatScreenContext(state.screen, state.screenPacket),
       rollingSummary: state.rollingSummary,
       claims: groundToScreen ? "" : formatClaims(state.claims),
       smart: smart || groundToScreen,
+      deep: opts?.deep,
       groundToScreen,
       maxTokens: opts?.maxTokens,
       image: opts?.imageBase64
@@ -408,8 +463,16 @@ async function streamCueCardInner(
           }
         : undefined,
     })) {
+      if (generation !== state.generation) {
+        replaced = true;
+        break;
+      }
       full += delta;
       await emit({ type: "answer.delta", questionId, text: delta });
+    }
+    if (replaced) {
+      await emit({ type: "answer.cancelled", questionId });
+      return false;
     }
     const spoken = toSpoken(full);
     if (!groundToScreen && specialist.id !== "coding" && jevEnabled()) {
@@ -444,7 +507,7 @@ async function streamCueCardInner(
     }
     turnRecord.answer = spoken;
     state.turns.push(turnRecord);
-    if (state.turns.length > 20) state.turns.shift();
+    if (state.turns.length > 200) state.turns.shift();
     state.claims = heuristicClaims({
       answer: spoken,
       story: picked,
@@ -459,15 +522,18 @@ async function streamCueCardInner(
     state.speakingUntil = Date.now() + (source === "screen" ? 6_000 : 45_000);
     void refreshRollingSummary(sessionId, emit);
     void refreshClaims(sessionId, classified.text, spoken, picked?.name);
+    return true;
   } catch (err) {
+    if (generation !== state.generation) return false;
     const message = err instanceof Error ? err.message : "Could not write an answer.";
     await emit({
       type: "session.error",
       code: /claude|key/i.test(message) ? "llm_key" : "llm",
       message,
     });
+    return false;
   } finally {
-    state.answering = false;
+    if (generation === state.generation) state.answering = false;
   }
 }
 
@@ -542,6 +608,8 @@ type AudioTranscriber = {
   commit: () => void;
   close: () => void;
   reconnect?: () => Promise<void>;
+  /** Finish transcribing what was just said, waiting at most `timeoutMs`. */
+  flush?: (timeoutMs: number) => Promise<void>;
 };
 
 type ListeningSession = {
@@ -812,7 +880,7 @@ export async function startListening(
       message:
         status.llm && named
           ? `${label} can write answers. Type the question or press Assist — live listen needs a speech key.`
-          : "Add your model key on the Plan page.",
+          : "The server has no AI key configured, so live listening can't start.",
     });
     return;
   }
@@ -864,9 +932,13 @@ export async function startListening(
   const hooks = {
     vocabulary: track.vocabulary,
     onPartial: (text: string) => {
+      state.partial = `${state.partial}${text}`.slice(-2_000);
       void emit({ type: "transcript.partial", text });
     },
     onSegment: (text: string) => {
+      state.partial = "";
+      state.transcript.push({ at: Date.now(), text, source });
+      if (state.transcript.length > TRANSCRIPT_MAX) state.transcript.shift();
       state.recent.push(text);
       if (state.recent.length > 16) state.recent.shift();
       void emit({ type: "transcript.final", text, source });
@@ -894,7 +966,7 @@ export async function startListening(
       await emit({
         type: "session.error",
         code: "no_ai_key",
-        message: "The model key was rejected. Check the Plan page and try again.",
+        message: "The server's AI key was rejected, so live transcription can't start. Check OPENAI_API_KEY on the server.",
       });
       await emit({ type: "listen.state", sessionId, active: false });
       return;
@@ -978,204 +1050,45 @@ export function isListening(sessionId: string) {
 // Screen vision
 // ---------------------------------------------------------------------------
 
+/** Solve what is on the screenshot, with the conversation so far for constraints and follow-ups. */
 async function solveFromScreenshot(
   sessionId: string,
   image: string,
   mimeType: string | undefined,
   emit: (event: Record<string, unknown>) => void | Promise<void>,
-  extras?: AnswerExtras,
-  source: "screen" | "assist" = "assist",
-  conversation = "",
-  typedAsk = "",
+  extras: AnswerExtras | undefined,
+  opts: { conversation: string; typedAsk: string; generation: number; deep: boolean },
 ) {
   const state = mem(sessionId);
-
-  if (source === "assist") {
-    const ask = assistScreenAsk(conversation);
-    if (extras?.ai) state.ai = extras.ai;
-    const questionTitle = withSessionAi(sessionId, () =>
-      analyzeScreen(image, mimeType, { detail: "high" }),
-    )
-      .then((analysis) => {
-        if (!analysis || analysis.kind === "idle") return null;
-        state.screen = { ...analysis, at: Date.now() };
-        return screenTitle(analysis);
-      })
-      .catch(() => null);
-    await streamCueCard(
-      sessionId,
-      {
-        kind: "coding",
-        text: ask,
-      },
-      emit,
-      extras,
-      source,
-      true,
-      {
-        imageBase64: image,
-        mimeType,
-        groundToScreen: true,
-        displayText: typedAsk || "What's on screen",
-        questionTitle: typedAsk ? undefined : questionTitle,
-      },
-    );
-    return;
-  }
-
-  let analysis: ScreenAnalysis | null = null;
-  try {
-    analysis = await analyzeScreen(image, mimeType, { detail: "high" });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/401|invalid api key|incorrect api key/i.test(message)) {
-      await emit({
-        type: "session.error",
-        code: "no_ai_key",
-        message: "The model key was rejected. Check the Plan page and try again.",
-      });
-      return;
-    }
-  }
-
-  let fresh: { key: string; text: string }[] = [];
-  if (analysis && analysis.kind !== "idle") {
-    const merged = mergeScreenPacket(state.screenPacket, analysis);
-    state.screenPacket = merged.packet;
-    fresh = merged.fresh;
-    state.screen = { ...analysis, at: Date.now() };
-    const waiting =
-      !looksLikeCompleteCodingProblem(analysis) &&
-      merged.packet.questions.length === 0 &&
-      merged.packet.passage.length >= 40;
-    await emit({
-      type: "screen.insight",
-      kind: analysis.kind,
-      title: analysis.title,
-      text: waiting
-        ? "Statement saved. Scroll down so I can see the questions."
-        : (analysis.problem || analysis.ocrText).slice(0, 280),
-      ocrText: analysis.ocrText,
-    });
-  }
-
-  if (source === "screen" && analysis?.kind === "idle") return;
-  if (!analysis) {
-    if (source === "assist") {
-      await emit({
-        type: "session.error",
-        code: "no_prompt",
-        message: "I couldn't read the screen. Make sure the question is fully visible, then press Assist again.",
-      });
-    }
-    return;
-  }
-
-  const packet = state.screenPacket;
-  const visible = analysis.questions
-    .filter((text) => !isJunkScreenText(text))
-    .map((text) => ({
-      key: text.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 180),
-      text,
-    }));
-  const unanswered = (packet?.questions ?? []).filter(
-    (item) => !packet?.answered.includes(item.key),
-  );
-  const toAnswer =
-    source === "assist"
-      ? visible.length
-        ? visible
-        : unanswered
-      : fresh.filter((item) => !packet?.answered.includes(item.key));
-
-  if (looksLikeCompleteCodingProblem(analysis) && toAnswer.length === 0) {
-    const language = analysis.language ? `Language: ${analysis.language}.` : "";
-    const signature = analysis.signature ? `Starter: ${analysis.signature}` : "";
-    const body = (analysis.problem || analysis.ocrText || "").slice(0, 1600);
-    await streamCueCard(
-      sessionId,
-      {
-        kind: "coding",
-        text: ["Solve only the interview problem in the attached screenshot.", language, signature, body]
-          .filter(Boolean)
-          .join("\n"),
-      },
-      emit,
-      extras,
-      source,
-      true,
-      { imageBase64: image, mimeType, groundToScreen: true },
-    );
-    return;
-  }
-
-  if (toAnswer.length === 0) {
-    const body = [analysis.problem, analysis.ocrText, analysis.passage]
-      .map((item) => (item || "").trim())
-      .find((item) => item.length >= 20 && !isJunkScreenText(item)) || "";
-    if (body.length >= 20) {
-      const algo = looksLikeAlgoProblem(body) || analysis.kind === "code";
-      await streamCueCard(
-        sessionId,
-        {
-          kind: algo ? "coding" : analysis.kind === "code" ? "coding" : "technical",
-          text: [
-            "Answer the interview or coding problem visible on the attached screenshot. Ignore Cursor, this HUD, and any IDE chat.",
-            analysis.language ? `Language: ${analysis.language}.` : "",
-            body.slice(0, 2400),
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        },
-        emit,
-        extras,
-        source,
-        true,
-        {
-          imageBase64: image,
-          mimeType,
-          groundToScreen: true,
-        },
-      );
-      return;
-    }
-    if (source === "assist") {
-      await emit({
-        type: "session.error",
-        code: "no_prompt",
-        message: "I couldn't read a question on the screen. Make sure it is fully visible, then press Assist again.",
-      });
-    }
-    return;
-  }
-
-  const question = formatPacketPrompt(packet ?? { title: "", language: "", passage: "", questions: toAnswer, answered: [] }, toAnswer, {
-    imageHasQuestions: analysis.questions.length > 0,
-  });
-  if (state.screenPacket) {
-    state.screenPacket = markAnswered(
-      state.screenPacket,
-      toAnswer.map((item) => item.key),
-    );
-  }
-
-  const extract = [analysis.problem, analysis.ocrText, analysis.passage, ...toAnswer.map((item) => item.text)].join("\n");
-  const algo = looksLikeAlgoProblem(extract) || analysis.kind === "code";
-  await streamCueCard(
+  if (extras?.ai) state.ai = extras.ai;
+  const questionTitle = withSessionAi(sessionId, () =>
+    analyzeScreen(image, mimeType, { detail: "high" }),
+  )
+    .then((analysis) => {
+      if (!analysis || analysis.kind === "idle") return null;
+      state.screen = { ...analysis, at: Date.now() };
+      return screenTitle(analysis);
+    })
+    .catch(() => null);
+  const ask = opts.typedAsk
+    ? `${opts.typedAsk}\n\n(They mean what is on the attached screenshot.)`
+    : ASSIST_SCREEN_ASK;
+  return streamCueCard(
     sessionId,
-    {
-      kind: algo ? "coding" : analysis.kind === "docs" || analysis.kind === "slide" ? "technical" : "coding",
-      text: question,
-    },
+    { kind: "coding", text: ask },
     emit,
     extras,
-    source,
+    "assist",
     true,
     {
       imageBase64: image,
       mimeType,
       groundToScreen: true,
-      maxTokens: algo ? undefined : Math.min(900, 420 + toAnswer.length * 180),
+      conversation: opts.conversation,
+      generation: opts.generation,
+      deep: opts.deep,
+      displayText: opts.typedAsk || "What's on screen",
+      questionTitle: opts.typedAsk ? undefined : questionTitle,
     },
   );
 }
@@ -1202,16 +1115,6 @@ export async function handleScreenFrame(
   };
 }
 
-function latestFallback(sessionId: string) {
-  const state = mem(sessionId);
-  return (
-    state.pendingTurn ||
-    state.recent.slice(-3).join(" ") ||
-    state.turns[state.turns.length - 1]?.question ||
-    ""
-  );
-}
-
 export async function handleAssistRequest(
   sessionId: string,
   input: {
@@ -1232,93 +1135,117 @@ export async function handleAssistRequest(
     await emit({
       type: "session.error",
       code: "no_ai_key",
-      message: "Server AI key is not configured. Please ensure OPENAI_API_KEY is set in the server environment.",
+      message: "The server has no AI key configured, so Assist can't answer.",
     });
     return;
   }
 
-  const packed = (input.transcript ?? "").trim();
-  const latestImage =
-    input.images?.[input.images.length - 1]?.imageBase64 ||
-    input.imageBase64 ||
-    state.pendingScreen?.imageBase64;
+  // Claim this request first, so an answer still streaming stops as soon as it sees it.
+  const generation = ++state.generation;
+  // The answer being replaced no longer owns `answering`, so its finally will not clear it.
+  state.answering = false;
+  await settleSpeech(sessionId);
+  if (generation !== state.generation) return;
+
+  const sentImage = input.images?.[input.images.length - 1]?.imageBase64 || input.imageBase64 || "";
+  const latestImage = sentImage || state.pendingScreen?.imageBase64 || "";
   const latestMime =
     input.images?.[input.images.length - 1]?.mimeType ||
     input.mimeType ||
     state.pendingScreen?.mimeType;
+  const text = input.text ? sanitizeText(input.text, { max: LIMITS.question }) : "";
+  // Typed questions arrive as "ask". Desktop builds before 0.1.6 also attach their own guess at
+  // the spoken question to "assist"; that guess can predate the newest speech, so it is only a
+  // fallback for when the server heard nothing new itself.
+  const typed = input.action === "assist" ? "" : text;
+  const spokenHint = input.action === "assist" ? text : "";
+  const conversation = buildConversation(state, input.transcript ?? "");
+  // Speech transcribed after this point was not part of this answer.
+  const heardUpTo = Date.now();
+  const target = pickAssistTarget({
+    action: input.action,
+    typed,
+    sentImage: Boolean(sentImage),
+    anyImage: Boolean(latestImage),
+    freshSpeech: conversation.fresh || spokenHint,
+    hasTurns: state.turns.length > 0,
+  });
+  const deep = Boolean(input.smart);
 
-  const typed = input.text ? sanitizeText(input.text, { max: LIMITS.question }) : "";
-  const conversation = packed || state.recent.slice(-8).join(" ").trim();
-  const sentImage = input.images?.[input.images.length - 1]?.imageBase64 || input.imageBase64;
-  const typedAboutScreen = Boolean(typed && sentImage && refersToScreen(typed));
-  const solveScreen =
-    input.action === "screen" ||
-    (input.action === "assist" && !typed && Boolean(latestImage)) ||
-    typedAboutScreen;
-  if (solveScreen) {
-    if (!latestImage) {
-      await emit({
-        type: "session.error",
-        code: "no_prompt",
-        message: "Could not capture the screen. Enable Screen Recording and try again.",
-      });
-      return;
+  if (target.mode === "none") {
+    await emit({ type: "session.error", code: "no_prompt", message: target.message });
+    return;
+  }
+
+  let done = false;
+  if (target.mode === "screen") {
+    done = await solveFromScreenshot(sessionId, latestImage, latestMime, emit, extras, {
+      conversation: conversation.log,
+      typedAsk: target.typed,
+      generation,
+      deep,
+    });
+  } else {
+    const previous = state.turns.at(-1);
+    let ask = "";
+    let display = "";
+    let kind = "general";
+    let questionTitle: Promise<string | null> | undefined;
+    if (target.mode === "button") {
+      const built = assistPrompt(target.action, undefined, "");
+      if ("error" in built) return;
+      ask = built.text;
+      display = built.label;
+      kind = built.kind;
+    } else if (target.mode === "continue" && previous) {
+      ask = `Nothing new has been said since your last answer. Go one layer deeper on "${previous.question}": cover what your last answer left out, with a concrete example. Do not repeat it.`;
+      display = `More on: ${previous.question}`.slice(0, 200);
+      kind = previous.kind;
+    } else {
+      const said = target.mode === "typed" ? target.typed : target.mode === "conversation" ? target.said : "";
+      ask =
+        target.mode === "typed"
+          ? said
+          : `The newest thing said, which is what to answer now (a question, a request like "tell me about…", or a follow-up to your last answer):\n${said.slice(-3_000)}`;
+      display = target.mode === "typed" ? said : (extractLatestQuestion(said) || said).slice(-200);
+      if (target.mode === "conversation") questionTitle = titleLatestAsk(sessionId, said);
+      const routeText = target.mode === "typed" ? said : extractLatestQuestion(said) || said;
+      kind =
+        previous && isFollowUp(routeText)
+          ? previous.kind
+          : routeQuestion(routeText, state.track, undefined, sessionStage(state, routeText)).id;
     }
-    await solveFromScreenshot(
+    // A typed question only carries the screen when the HUD judged it was about the screen.
+    const image = target.mode === "typed" ? sentImage : latestImage;
+    done = await streamCueCard(
       sessionId,
-      latestImage,
-      latestMime,
+      { kind, text: ask },
       emit,
       extras,
       "assist",
-      typedAboutScreen ? [conversation, typed].filter(Boolean).join("\n") : conversation,
-      typedAboutScreen ? typed : "",
+      true,
+      {
+        displayText: display,
+        questionTitle,
+        conversation: conversation.log,
+        generation,
+        deep,
+        ...(image ? { imageBase64: image, mimeType: latestMime, groundToScreen: false } : {}),
+      },
     );
-    return;
   }
-
-  const built = assistPrompt(input.action, typed, conversation || latestFallback(sessionId));
-  if ("error" in built) {
-    await emit({
-      type: "session.error",
-      code: "no_prompt",
-      message: built.error,
-    });
-    return;
-  }
-
-  const useScreen = Boolean(latestImage) && (input.action !== "ask" || Boolean(sentImage));
-  const question = conversation && conversation !== built.text
-    ? `${built.text}\n\nRecent conversation (oldest first):\n${conversation.slice(-2400)}`
-    : built.text;
-
-  const previousKind = state.turns.at(-1)?.kind;
-  const specialist =
-    built.action === "assist" || built.action === "ask"
-      ? previousKind && isFollowUp(built.text)
-        ? resolveSpecialist(previousKind)
-        : routeQuestion(built.text, state.track, undefined, sessionStage(state, built.text))
-      : resolveSpecialist(built.kind);
-
-  await streamCueCard(
-    sessionId,
-    { kind: specialist.id, text: question },
-    emit,
-    extras,
-    "assist",
-    Boolean(input.smart),
-    {
-      displayText: built.text,
-      ...(useScreen
-        ? { imageBase64: latestImage, mimeType: latestMime, groundToScreen: false }
-        : {}),
-    },
-  );
+  if (done) state.answeredAt = Math.max(state.answeredAt, heardUpTo);
 }
 
 /** Clears live memory but keeps the session and the audio connection. */
 export function resetLiveContext(sessionId: string) {
   const state = mem(sessionId);
+  state.generation += 1;
+  state.answering = false;
+  state.transcript = [];
+  state.partial = "";
+  state.answeredAt = 0;
+  state.startedAt = Date.now();
   state.recent = [];
   state.cleanRecent = [];
   state.lastQuestion = "";

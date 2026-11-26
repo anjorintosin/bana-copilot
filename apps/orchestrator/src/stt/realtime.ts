@@ -48,8 +48,45 @@ export class RealtimeTranscriber {
   private speaking = false;
   private silentMs = 0;
   private hasAudio = false;
+  /** Turns committed but not transcribed yet. */
+  private inFlight = 0;
+  private settled: (() => void)[] = [];
 
   constructor(private opts: RealtimeTranscriberOptions) {}
+
+  private releaseWaiters() {
+    this.inFlight = 1;
+    this.settleOne();
+  }
+
+  private settleOne() {
+    this.inFlight = Math.max(0, this.inFlight - 1);
+    if (this.inFlight) return;
+    const waiting = this.settled;
+    this.settled = [];
+    for (const done of waiting) done();
+  }
+
+  /**
+   * Commit whatever was just said and wait until every committed turn has its final text,
+   * so Assist answers the question that was asked a moment ago, not the one before it.
+   */
+  flush(timeoutMs: number): Promise<void> {
+    this.commit();
+    if (!this.inFlight) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        // A commit that never got a transcript must not slow every later Assist.
+        this.inFlight = 0;
+        this.settled = [];
+        resolve();
+      }, timeoutMs);
+      this.settled.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
 
   connect(): Promise<void> {
     const key = currentAiKey();
@@ -170,8 +207,12 @@ export class RealtimeTranscriber {
       case "conversation.item.input_audio_transcription.completed": {
         const text = String(event.transcript ?? "").trim();
         if (text) this.opts.onSegment(text);
+        this.settleOne();
         break;
       }
+      case "conversation.item.input_audio_transcription.failed":
+        this.settleOne();
+        break;
       case "input_audio_buffer.speech_started":
         this.opts.onSpeechStart();
         break;
@@ -187,6 +228,11 @@ export class RealtimeTranscriber {
           payload?.code ??
           "Realtime transcription error";
         console.error("[realtime-stt] event", payload ?? event);
+        if (/buffer too small|buffer is empty|input_audio_buffer_commit_empty/i.test(`${message} ${payload?.code ?? ""}`)) {
+          // An early commit from Assist with almost no audio: nothing to transcribe, not a failure.
+          this.settleOne();
+          break;
+        }
         const error = new Error(message);
         if (!this.ready) {
           onFirstError(error);
@@ -231,6 +277,7 @@ export class RealtimeTranscriber {
       return;
     }
     this.ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+    this.inFlight += 1;
     this.hasAudio = false;
     if (this.speaking) this.opts.onSpeechStop();
     this.speaking = false;
@@ -240,6 +287,7 @@ export class RealtimeTranscriber {
   close() {
     this.closedByUs = true;
     this.ready = false;
+    this.releaseWaiters();
     this.hasAudio = false;
     this.speaking = false;
     try {
@@ -254,6 +302,7 @@ export class RealtimeTranscriber {
   async reconnect() {
     this.closedByUs = true;
     this.ready = false;
+    this.releaseWaiters();
     this.hasAudio = false;
     this.speaking = false;
     this.silentMs = 0;

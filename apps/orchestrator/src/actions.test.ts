@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { refersToScreen } from "./actions";
+import { refersToScreen } from "./actions.js";
 
 test("typed asks about the screen are solved from the screenshot", () => {
   for (const typed of [

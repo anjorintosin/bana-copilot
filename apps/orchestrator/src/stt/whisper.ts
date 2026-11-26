@@ -44,12 +44,17 @@ function pcm16ToWav(pcm: Buffer) {
   return Buffer.concat([header, pcm]);
 }
 
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 export class WhisperTranscriber {
   private speaking = false;
   private silentMs = 0;
   private chunks: Buffer[] = [];
   private busy = false;
   private closed = false;
+  private current: Promise<void> | null = null;
 
   constructor(private opts: WhisperTranscriberOptions) {}
 
@@ -75,6 +80,15 @@ export class WhisperTranscriber {
     if (this.silentMs >= END_SILENCE_MS) this.commit();
   }
 
+  /** Transcribe what was just said and wait for it (up to timeoutMs). */
+  async flush(timeoutMs: number) {
+    const started = Date.now();
+    if (this.busy && this.current) await Promise.race([this.current, wait(timeoutMs)]);
+    this.commit();
+    const left = timeoutMs - (Date.now() - started);
+    if (this.current && left > 0) await Promise.race([this.current, wait(left)]);
+  }
+
   commit() {
     if (this.closed || this.busy) return;
     const pcm = Buffer.concat(this.chunks);
@@ -83,7 +97,9 @@ export class WhisperTranscriber {
     this.speaking = false;
     this.silentMs = 0;
     if (pcm.length < 2400) return;
-    void this.transcribe(pcm);
+    this.current = this.transcribe(pcm).finally(() => {
+      this.current = null;
+    });
   }
 
   close() {

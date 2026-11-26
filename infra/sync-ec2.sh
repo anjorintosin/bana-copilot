@@ -27,7 +27,8 @@ if [[ ! -f .env ]]; then
   echo "Missing ~/bana-copilot/.env on the instance."
   exit 1
 fi
+bash infra/ensure-env.sh "$IP"
 sudo docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --build
 EOF
 
-echo "API: http://$IP:8787/health"
+echo "API: https://${IP//./-}.sslip.io/health (or your PUBLIC_HOST); http://$IP:8787/health still serves older builds"

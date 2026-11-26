@@ -33,6 +33,10 @@ if [[ -z "$SG_ID" || "$SG_ID" == "None" ]]; then
   aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$SG_ID" --protocol tcp --port 22 --cidr 0.0.0.0/0
   aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$SG_ID" --protocol tcp --port 8787 --cidr 0.0.0.0/0
 fi
+# HTTPS (Caddy). Safe to rerun: a rule that already exists is reported as a duplicate and skipped.
+for PORT in 80 443; do
+  aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$SG_ID" --protocol tcp --port "$PORT" --cidr 0.0.0.0/0 >/dev/null 2>&1 || true
+done
 
 AMI="$(aws ec2 describe-images --region "$REGION" --owners 099720109477 \
   --filters "Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*" "Name=state,Values=available" \
@@ -65,33 +69,20 @@ for _ in $(seq 1 36); do
 done
 
 ssh -i "$HOME/.ssh/${KEY_NAME}.pem" "ubuntu@$IP" "sudo cloud-init status --wait || true"
-rsync -az --delete --exclude node_modules --exclude .git --exclude apps/desktop/dist \
+rsync -az --delete --exclude node_modules --exclude .git --exclude apps/desktop/dist --exclude .env \
   -e "ssh -i $HOME/.ssh/${KEY_NAME}.pem -o StrictHostKeyChecking=accept-new" \
   "$ROOT/" "ubuntu@$IP:~/bana-copilot/"
 
 ssh -i "$HOME/.ssh/${KEY_NAME}.pem" "ubuntu@$IP" bash -s <<EOF
 set -euo pipefail
 cd ~/bana-copilot
-if [[ ! -f .env ]]; then
-  umask 077
-  cat > .env <<ENV
-JWT_SECRET=$(openssl rand -hex 24)
-CREDENTIALS_SECRET=$(openssl rand -hex 24)
-PUBLIC_APP_URL=http://$IP:8787
-ENV
-fi
-# Keep the public URL in sync if the instance IP changed.
-if grep -q '^PUBLIC_APP_URL=' .env; then
-  sed -i "s|^PUBLIC_APP_URL=.*|PUBLIC_APP_URL=http://$IP:8787|" .env
-else
-  echo "PUBLIC_APP_URL=http://$IP:8787" >> .env
-fi
+bash infra/ensure-env.sh "$IP"
 sudo docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --build
 EOF
 
 mkdir -p "$ROOT/infra"
 printf '%s\n' "$IP" > "$ROOT/infra/ec2-host.txt"
 echo ""
-echo "API:  http://$IP:8787/health"
-echo "WS:   ws://$IP:8787/ws"
-echo "Put those URLs in apps/desktop/src/remote.ts before you pack the app for GitHub."
+echo "API:  https://${IP//./-}.sslip.io/health"
+echo "WS:   wss://${IP//./-}.sslip.io/ws"
+echo "Put the https URL in apps/desktop/src/remote.ts before you pack the app for GitHub."

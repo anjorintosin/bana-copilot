@@ -10,7 +10,7 @@ import {
   type ClientEvent,
   type ServerEvent,
 } from "@meeting-copilot/types";
-import { sanitizeClientEvent, takeWriteToken } from "./guard.js";
+import { sanitizeClientEvent, sanitizeTrack, takeWriteToken } from "./guard.js";
 import { migrate } from "./db.js";
 import { connectRedis } from "./redis.js";
 import { bearer, signUser, upsertDevice, verifyToken, type AuthUser } from "./auth.js";
@@ -391,7 +391,7 @@ app.get("/billing/complete", async (req, reply) => {
     await completeCheckout(sessionId);
     return reply
       .type("text/html")
-      .send(billingCompleteHtml(true, "Return to Home → Plan. Your plan is active."));
+      .send(billingCompleteHtml(true, "Your plan is active. You can close this tab."));
   } catch (err) {
     return reply.type("text/html").send(
       billingCompleteHtml(
@@ -549,7 +549,7 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           company: event.jobContext?.company || profile.company,
         });
         configureSession(sessionId, {
-          track: event.track || profile.defaultTrack,
+          track: event.track || sanitizeTrack(profile.defaultTrack),
           stage: event.stage,
           listenMode: event.listenMode,
         });

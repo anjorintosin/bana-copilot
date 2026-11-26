@@ -17,9 +17,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run test -w @meeting-copilot/desktop
-      - run: npm run build -w @meeting-copilot/desktop
+      - run: npx tsc --pretty false -p apps/desktop
       - run: npx tsc --pretty false --noEmit -p apps/api
-        continue-on-error: true
-      - run: npx tsc --pretty false --noEmit -p apps/orchestrator
-        continue-on-error: true
+      - run: npx tsc --pretty false -p apps/orchestrator
+      - run: npm test
+      - run: npm run build -w @meeting-copilot/desktop

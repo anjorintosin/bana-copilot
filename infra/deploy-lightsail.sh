@@ -56,6 +56,10 @@ aws lightsail open-instance-public-ports --region "$REGION" --instance-name "$NA
   --port-info fromPort=22,toPort=22,protocol=tcp,cidrs=0.0.0.0/0 >/dev/null || true
 aws lightsail open-instance-public-ports --region "$REGION" --instance-name "$NAME" \
   --port-info fromPort=8787,toPort=8787,protocol=tcp,cidrs=0.0.0.0/0 >/dev/null
+for PORT in 80 443; do
+  aws lightsail open-instance-public-ports --region "$REGION" --instance-name "$NAME" \
+    --port-info fromPort=$PORT,toPort=$PORT,protocol=tcp,cidrs=0.0.0.0/0 >/dev/null || true
+done
 
 echo "Instance $NAME at $IP — waiting for SSH"
 for _ in $(seq 1 48); do
@@ -83,24 +87,12 @@ rsync -az --delete \
 ssh -i "$KEY_FILE" "ubuntu@$IP" bash -s <<EOF
 set -euo pipefail
 cd ~/bana-copilot
-if [[ ! -f .env ]]; then
-  umask 077
-  cat > .env <<ENV
-JWT_SECRET=$(openssl rand -hex 24)
-CREDENTIALS_SECRET=$(openssl rand -hex 24)
-PUBLIC_APP_URL=http://$IP:8787
-ENV
-fi
-if grep -q '^PUBLIC_APP_URL=' .env; then
-  sed -i "s|^PUBLIC_APP_URL=.*|PUBLIC_APP_URL=http://$IP:8787|" .env
-else
-  echo "PUBLIC_APP_URL=http://$IP:8787" >> .env
-fi
+bash infra/ensure-env.sh "$IP"
 sudo docker compose --env-file .env -f infra/docker-compose.prod.yml up -d --build
 EOF
 
 printf '%s\n' "$IP" > "$ROOT/infra/ec2-host.txt"
 echo ""
-echo "API:  http://$IP:8787/health"
-echo "WS:   ws://$IP:8787/ws"
+echo "API:  https://${IP//./-}.sslip.io/health"
+echo "WS:   wss://${IP//./-}.sslip.io/ws"
 echo "Lightsail small_3_0 is about \$12/month. Stop it in the console when testers are done."

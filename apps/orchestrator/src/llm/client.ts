@@ -10,7 +10,7 @@ export type AiCreds = {
   provider?: AiProvider;
 };
 
-export function inferProvider(creds: Pick<AiCreds, "apiKey" | "provider" | "baseURL">): AiProvider {
+export function inferProvider(creds: { apiKey: string; provider?: string; baseURL?: string }): AiProvider {
   if (creds.apiKey.startsWith("sk-ant-") || creds.provider === "claude" || String(creds.provider) === "anthropic") {
     return "claude";
   }
@@ -46,7 +46,7 @@ export function runWithAi<T>(creds: AiCreds | null | undefined, fn: () => T): T 
   return store.run(creds, fn);
 }
 
-export const NEED_KEY = "Add your model key on the Plan page to try Bana Copilot.";
+export const NEED_KEY = "The server has no AI key configured. Set OPENAI_API_KEY on the server.";
 
 export function currentAi(): AiCreds | null {
   const local = store.getStore();

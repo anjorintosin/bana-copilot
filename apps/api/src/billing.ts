@@ -486,5 +486,5 @@ export function billingCompleteHtml(ok: boolean, message: string) {
 main{max-width:420px;padding:28px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:#14141a}
 h1{font-size:22px;margin:0 0 8px}p{color:#a1a1aa;line-height:1.5}</style></head>
 <body><main><h1>${ok ? "You're subscribed" : "Checkout"}</h1><p>${message}</p>
-<p>Return to Home → Plan in the app.</p></main></body></html>`;
+<p>Return to Bana Copilot.</p></main></body></html>`;
 }

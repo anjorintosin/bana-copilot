@@ -104,11 +104,15 @@ export async function* streamAnswer(input: {
   brief?: string;
   ragContext?: string;
   prior: { question: string; kind: string; answer: string }[];
+  /** The whole conversation so far. When set it replaces the short recent-Q&A window. */
+  conversation?: string;
   screenContext?: string;
   rollingSummary?: string;
   claims?: string;
   intent?: InterviewerIntent;
   smart?: boolean;
+  /** Smart Mode: more reasoning before the first word. */
+  deep?: boolean;
   image?: ChatImage;
   groundToScreen?: boolean;
   maxTokens?: number;
@@ -139,44 +143,43 @@ export async function* streamAnswer(input: {
     outputTokens: 0,
   };
 
-  const prior = input.groundToScreen
+  const conversation = (input.conversation ?? "").trim();
+  // The conversation goes first: it only grows between answers, so its prefix stays cached.
+  const conversationBlock = conversation
+    ? `Conversation so far (oldest first). "Them" is the other side of the call. "You were shown" lines are your earlier answers, which the candidate may already have said out loud:
+${conversation}
+
+`
+    : "";
+  const prior = conversation
     ? ""
     : input.prior
-        .slice(-2)
-        .map(
-          (turn) =>
-            `Q (${turn.kind}): ${turn.question}\nA: ${turn.answer.slice(0, 280)}`,
-        )
+        .slice(-6)
+        .map((turn) => `Q (${turn.kind}): ${turn.question}\nA: ${turn.answer.slice(0, 1_200)}`)
         .join("\n\n");
 
   const user = input.groundToScreen
-    ? `Screen turn: a screenshot is attached, and this is the text read from it.
+    ? `${conversationBlock}Screen turn: a screenshot is attached, and this is the text read from it.
 
 Screen extract:
 ${(input.screenContext || "(none)").slice(0, 2400)}
-${input.rollingSummary ? `\nInterview so far:\n${input.rollingSummary.slice(0, 400)}\n` : ""}${knowledgeBlock}
-They asked:
+${!conversation && input.rollingSummary ? `\nInterview so far:\n${input.rollingSummary.slice(0, 2_000)}\n` : ""}${knowledgeBlock}
+Solve this, applying any constraints, hints, or follow-ups from the conversation:
 ${input.question}`
-    : `Interview stage: ${getStage(input.stage).label}. ${getStage(input.stage).style}
-
-Recent Q&A:
-${prior || "(none)"}
-
+    : `${conversationBlock}Interview stage: ${getStage(input.stage).label}. ${getStage(input.stage).style}
+${prior ? `\nRecent Q&A:\n${prior}\n` : ""}
 Screen:
-${(input.screenContext || "(none)").slice(0, 800)}
+${(input.screenContext || "(none)").slice(0, 1_500)}
 
 Picked story (stay inside it; ignore if none):
-${(input.ragContext || "(none)").slice(0, 700)}
-
-Interview so far:
-${(input.rollingSummary || "(just started)").slice(0, 400)}
-
+${(input.ragContext || "(none)").slice(0, 1_500)}
+${!conversation ? `\nInterview so far:\n${(input.rollingSummary || "(just started)").slice(0, 2_000)}\n` : ""}
 Claims already said:
-${(input.claims || "(none)").slice(0, 400)}
-${knowledgeBlock}${input.image ? "\nA screenshot of their display is attached. If they typed a real question, answer it and use the screenshot as context. If they typed a greeting or nothing useful, answer the question on the screenshot.\n" : ""}
+${(input.claims || "(none)").slice(0, 1_200)}
+${knowledgeBlock}${input.image ? "\nA screenshot of their display is attached as background. Answer the request below. Use the screenshot only when the request refers to it or needs it; never switch to solving something else that happens to be on screen.\n" : ""}
 ${intentGuidance(input.intent)}
 
-They just asked:
+Answer this now:
 ${input.question}`;
 
   const stream = streamChat({
@@ -186,7 +189,7 @@ ${input.question}`;
     temperature: specialist.temperature,
     maxTokens: input.maxTokens ?? specialist.maxTokens,
     image: input.image,
-    reasoningEffort: heavy ? heavyEffort() : "low",
+    reasoningEffort: input.deep ? "medium" : heavy ? heavyEffort() : "low",
     verbosity: "low",
   });
   let next = await stream.next();
