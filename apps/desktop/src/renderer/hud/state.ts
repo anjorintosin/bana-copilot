@@ -17,6 +17,8 @@ export type Turn = {
   done: boolean;
   flag?: AnswerFlag;
   screenshot?: string;
+  /** Replaced by a newer question before it finished. */
+  stopped?: boolean;
 };
 
 export const state = {

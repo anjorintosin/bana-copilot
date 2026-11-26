@@ -79,7 +79,15 @@
               <button type="button" class="ghost" id="mode-coding-template">Use coding interview context</button>
             </div>
             <p class="hint" id="mode-builtin-hint" hidden>General uses general knowledge. You can attach files; you cannot change how it answers.</p>
+            <div id="general-sources" class="doc-list" hidden></div>
             <div id="mode-docs" class="doc-list"></div>
+            <div id="doc-viewer" class="doc-viewer" hidden>
+              <div class="doc-viewer-head">
+                <strong id="doc-viewer-title"></strong>
+                <button type="button" class="ghost" id="doc-viewer-close">Close</button>
+              </div>
+              <pre id="doc-viewer-text"></pre>
+            </div>
             <label class="field">
               <span>Knowledge</span>
               <textarea id="knowledge-text" placeholder="Paste notes, a job description, or anything this mode should know"></textarea>
@@ -113,7 +121,7 @@
         <section class="page" id="page-about" hidden>
           <h1>About</h1>
           <p class="hint">Bana Copilot is an intelligent stealth overlay that sits on your screen during interviews. It listens when you ask it to, inspects what’s on screen when sent, and drafts concise suggestions — never auto-answering without you.</p>
-          <p id="about-version">Desktop 0.1.5</p>
+          <p id="about-version">Desktop 0.1.6</p>
           <h2 class="subhead">What you can do</h2>
           <ul class="about-list">
             <li><strong>Ask anything</strong> — type in the top bar and press Enter (↵). Ask follow-ups, coding inquiries, or questions you heard.</li>

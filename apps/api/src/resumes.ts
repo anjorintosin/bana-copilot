@@ -30,6 +30,26 @@ export type JobProfile = {
   requirements?: string | null;
 };
 
+/** The active resume's full text, for reading it back in Home. */
+export async function getActiveResume(userId: string) {
+  const result = await pool.query(
+    `SELECT r.title, r.raw_text, r.created_at
+     FROM user_profiles p
+     JOIN resumes r ON r.id = p.active_resume_id
+     WHERE p.user_id = $1`,
+    [userId],
+  );
+  const row = result.rows[0];
+  if (!row) return { resume: null };
+  return {
+    resume: {
+      title: (row.title as string) || "Resume",
+      text: String(row.raw_text ?? ""),
+      createdAt: new Date(row.created_at).toISOString(),
+    },
+  };
+}
+
 export async function getProfile(userId: string) {
   const profile = await pool.query(
     `SELECT p.job_title, p.company, p.requirements, p.active_resume_id,

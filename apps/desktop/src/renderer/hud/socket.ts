@@ -152,6 +152,9 @@ export function connectGateway(hooks: SocketHooks) {
             : "They're probing — stay on this answer";
       }
       if (msg.type === "question.detected") {
+        // Only label a card "Viewed screen" when its answer came from the screen; a screenshot
+        // sent along with a spoken or typed question is just background.
+        if (msg.screen === false) state.pendingScreenshot = undefined;
         showQuestion(msg.questionId, msg.kind, msg.text);
         $.liveText.textContent = `Question (${msg.agent || prettyKind(msg.kind)})`;
       }
@@ -274,6 +277,7 @@ export function connectGateway(hooks: SocketHooks) {
         const turn = state.turns[index];
         if (turn) {
           turn.done = true;
+          turn.stopped = true;
           if (!turn.answer.trim()) {
             state.turns.splice(index, 1);
             if (state.viewIndex >= state.turns.length) state.viewIndex = state.turns.length - 1;

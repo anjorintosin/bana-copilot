@@ -50,6 +50,11 @@ const $ = {
   modeCodingTemplate: document.getElementById("mode-coding-template") as HTMLButtonElement,
   modeBuiltinHint: document.getElementById("mode-builtin-hint") as HTMLParagraphElement,
   modeDocs: document.getElementById("mode-docs") as HTMLDivElement,
+  generalSources: document.getElementById("general-sources") as HTMLDivElement,
+  docViewer: document.getElementById("doc-viewer") as HTMLDivElement,
+  docViewerTitle: document.getElementById("doc-viewer-title") as HTMLElement,
+  docViewerText: document.getElementById("doc-viewer-text") as HTMLPreElement,
+  docViewerClose: document.getElementById("doc-viewer-close") as HTMLButtonElement,
   modeSave: document.getElementById("mode-save") as HTMLButtonElement,
   modeDelete: document.getElementById("mode-delete") as HTMLButtonElement,
 };
@@ -61,6 +66,18 @@ let recording: ShortcutId | null = null;
 let modesList: AnswerModeList = { modes: [], activeModeId: "" };
 let editingModeId = "";
 let draftingMode = false;
+
+/** What General also answers from, saved through the earlier Resume, Role, and Stories pages. */
+type GeneralSources = {
+  resume: { title: string } | null;
+  role: { title: string; company: string; requirements: string };
+  stories: { name: string; situation: string; action: string; result: string }[];
+};
+let general: GeneralSources = {
+  resume: null,
+  role: { title: "", company: "", requirements: "" },
+  stories: [],
+};
 
 function pageFromHash(): Page {
   const raw = location.hash.replace("#", "").split("/")[0];
@@ -108,13 +125,151 @@ function parkEditor() {
   document.getElementById("page-modes")?.append($.modeEditor);
 }
 
+function generalSummary() {
+  return [
+    general.resume ? "resume" : "",
+    general.role.title ? "role" : "",
+    general.stories.length ? `${general.stories.length} stor${general.stories.length === 1 ? "y" : "ies"}` : "",
+  ].filter(Boolean);
+}
+
 function modeMeta(mode: AnswerMode) {
   const titles = (mode.documents ?? []).map((doc) => doc.title).filter(Boolean);
   const count = mode.documentCount;
   const files = count
     ? `${count} file${count === 1 ? "" : "s"}${titles.length ? ` · ${titles.slice(0, 2).join(", ")}` : ""}`
-    : "No files yet";
-  return mode.builtin ? `Built in · ${files}` : files;
+    : "";
+  if (!mode.builtin) return files || "No files yet";
+  const parts = [...generalSummary(), files].filter(Boolean);
+  return `Built in · ${parts.length ? parts.join(" · ") : "No files yet"}`;
+}
+
+function showDoc(title: string, text: string) {
+  $.docViewerTitle.textContent = title;
+  $.docViewerText.textContent = text.trim() || "(empty)";
+  $.docViewer.hidden = false;
+  $.docViewer.scrollIntoView({ block: "nearest" });
+}
+
+function hideDoc() {
+  $.docViewer.hidden = true;
+  $.docViewerText.textContent = "";
+}
+
+function docRow(title: string, detail: string, actions: { label: string; run: () => void }[]) {
+  const row = document.createElement("div");
+  row.className = "doc-row";
+  const copy = document.createElement("div");
+  copy.className = "doc-copy";
+  const name = document.createElement("strong");
+  name.textContent = title;
+  name.title = title;
+  const meta = document.createElement("span");
+  meta.textContent = detail;
+  copy.append(name, meta);
+  const buttons = document.createElement("div");
+  buttons.className = "doc-actions";
+  for (const action of actions) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost";
+    btn.textContent = action.label;
+    btn.addEventListener("click", action.run);
+    buttons.append(btn);
+  }
+  row.append(copy, buttons);
+  return row;
+}
+
+function storyText(story: GeneralSources["stories"][number]) {
+  return [
+    story.situation ? `Situation: ${story.situation}` : "",
+    story.action ? `Action: ${story.action}` : "",
+    story.result ? `Result: ${story.result}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** Under General: the resume, role, and stories it answers from, each readable in full. */
+function renderGeneralSources(mode: AnswerMode | undefined) {
+  if (!mode?.builtin || !generalSummary().length) {
+    $.generalSources.replaceChildren();
+    $.generalSources.hidden = true;
+    return;
+  }
+  const rows: HTMLElement[] = [];
+  const heading = document.createElement("p");
+  heading.className = "doc-list-title";
+  heading.textContent = "General also answers from:";
+  rows.push(heading);
+  if (general.resume) {
+    const title = general.resume.title;
+    rows.push(
+      docRow(`Resume · ${title}`, "Your resume", [
+        {
+          label: "View",
+          run: () => {
+            void (async () => {
+              const loaded = await window.copilot.getResume(token);
+              showDoc(`Resume · ${title}`, loaded.resume?.text ?? loaded.error ?? "Could not load the resume.");
+            })();
+          },
+        },
+      ]),
+    );
+  }
+  if (general.role.title) {
+    const role = general.role.company ? `${general.role.title} at ${general.role.company}` : general.role.title;
+    rows.push(
+      docRow(`Role · ${role}`, general.role.requirements ? "Job description saved" : "The role you are interviewing for", [
+        { label: "View", run: () => showDoc(`Role · ${role}`, general.role.requirements || role) },
+      ]),
+    );
+  }
+  if (general.stories.length) {
+    const count = general.stories.length;
+    rows.push(
+      docRow(`Stories · ${count}`, general.stories.map((story) => story.name).slice(0, 3).join(", ") + (count > 3 ? "…" : ""), [
+        {
+          label: "View",
+          run: () =>
+            showDoc(
+              `Stories · ${count}`,
+              general.stories.map((story) => `${story.name}\n${storyText(story)}`).join("\n\n———\n\n"),
+            ),
+        },
+      ]),
+    );
+  }
+  $.generalSources.replaceChildren(...rows);
+  $.generalSources.hidden = false;
+}
+
+async function loadGeneralSources() {
+  if (!token) return;
+  try {
+    const [profile, stories] = await Promise.all([
+      window.copilot.getProfile(token),
+      window.copilot.listStories(token),
+    ]);
+    general = {
+      resume: profile.resume ? { title: profile.resume.title } : null,
+      role: {
+        title: profile.jobTitle ?? "",
+        company: profile.company ?? "",
+        requirements: profile.requirements ?? "",
+      },
+      stories: (stories.stories ?? []).map((story) => ({
+        name: story.name,
+        situation: story.situation ?? "",
+        action: story.action ?? "",
+        result: story.result ?? "",
+      })),
+    };
+  } catch {
+    /* keep what was loaded before */
+  }
 }
 
 function renderModeCards() {
@@ -219,6 +374,7 @@ function fillModeEditor() {
   $.modeSave.hidden = builtin;
   $.modeCodingTemplate.hidden = builtin;
   $.knowledgeSave.textContent = "Add knowledge";
+  renderGeneralSources(mode);
   renderModeDocs(mode);
 }
 
@@ -230,29 +386,40 @@ function renderModeDocs(mode: AnswerMode | undefined) {
     return;
   }
   $.modeDocs.hidden = false;
+  const heading = document.createElement("p");
+  heading.className = "doc-list-title";
+  heading.textContent = "Files in this mode:";
   $.modeDocs.replaceChildren(
-    ...docs.map((doc) => {
-      const row = document.createElement("div");
-      row.className = "doc-row";
-      row.innerHTML = `<div><strong>${doc.title}</strong><span>${doc.chars} chars</span></div>`;
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "ghost";
-      remove.textContent = "Remove";
-      remove.addEventListener("click", () => {
-        if (!token || !mode) return;
-        void (async () => {
-          const listed = await window.copilot.deleteModeDocument(token, mode.id, doc.id);
-          if (listed.error) {
-            $.knowledgeStatus.textContent = listed.error;
-            return;
-          }
-          applyModes(listed);
-        })();
-      });
-      row.append(remove);
-      return row;
-    }),
+    heading,
+    ...docs.map((doc) =>
+      docRow(doc.title, `${doc.chars.toLocaleString()} characters · added ${new Date(doc.createdAt).toLocaleDateString()}`, [
+        {
+          label: "View",
+          run: () => {
+            if (!token || !mode) return;
+            void (async () => {
+              const loaded = await window.copilot.getModeDocument(token, mode.id, doc.id);
+              showDoc(doc.title, loaded.text ?? loaded.error ?? "Could not load this file.");
+            })();
+          },
+        },
+        {
+          label: "Remove",
+          run: () => {
+            if (!token || !mode) return;
+            void (async () => {
+              const listed = await window.copilot.deleteModeDocument(token, mode.id, doc.id);
+              if (listed.error) {
+                $.knowledgeStatus.textContent = listed.error;
+                return;
+              }
+              hideDoc();
+              applyModes(listed);
+            })();
+          },
+        },
+      ]),
+    ),
   );
 }
 
@@ -276,7 +443,7 @@ function startNewMode() {
 
 async function loadModes() {
   if (!token) return;
-  const listed = await window.copilot.listModes(token);
+  const [listed] = await Promise.all([window.copilot.listModes(token), loadGeneralSources()]);
   if (listed.error) {
     $.knowledgeStatus.textContent = listed.error;
     return;
@@ -378,13 +545,15 @@ $.knowledgeSave.addEventListener("click", async () => {
     $.knowledgeFile.value = "";
     $.knowledgeText.value = "";
     applyModes(listed);
-    $.knowledgeStatus.textContent = `Added to ${mode.name}.`;
+    $.knowledgeStatus.textContent = `Added to ${mode.name}. It's listed above; press View to read it.`;
   } catch (err) {
     $.knowledgeStatus.textContent = err instanceof Error ? err.message : "Could not save.";
   } finally {
     $.knowledgeSave.disabled = false;
   }
 });
+
+$.docViewerClose.addEventListener("click", () => hideDoc());
 
 $.modeNew.addEventListener("click", () => startNewMode());
 
@@ -491,26 +660,31 @@ $.quitBtn.addEventListener("click", () => {
 
 window.addEventListener("hashchange", () => showPage(pageFromHash()));
 
+async function refresh() {
+  const [account, sessions] = await Promise.all([
+    window.copilot.getAccount(token),
+    window.copilot.listSessions(token),
+  ]);
+  fillKey(account);
+  renderSessions(sessions.sessions ?? []);
+  await loadModes();
+}
+
 async function boot() {
   renderShortcuts(DEFAULT_SETTINGS);
   showPage(pageFromHash());
   if (!window.copilot) return;
+  // Registered once: re-registering on every change made each change reload Home once more.
+  window.copilot.onProfileChanged(() => {
+    if (token) void refresh().catch(() => undefined);
+  });
+  window.copilot.onSettingsChanged((next) => renderShortcuts(next));
   try {
     const auth = await window.copilot.ensureAuth();
     token = auth.token;
-    const [account, sessions] = await Promise.all([
-      window.copilot.getAccount(token),
-      window.copilot.listSessions(token),
-    ]);
-    fillKey(account);
-    renderSessions(sessions.sessions ?? []);
-    await loadModes();
+    await refresh();
     const loaded = await window.copilot.getSettings();
     renderShortcuts(loaded.settings);
-    window.copilot.onProfileChanged(() => {
-      void boot();
-    });
-    window.copilot.onSettingsChanged((next) => renderShortcuts(next));
   } catch {
     /* API down */
   }

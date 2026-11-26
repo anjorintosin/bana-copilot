@@ -440,3 +440,54 @@ button,
 .about-list strong {
   font-weight: 650;
 }
+
+.doc-row .doc-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.doc-row .doc-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.doc-row .doc-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-list-title {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.doc-viewer {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #1c1c22;
+}
+
+.doc-viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.doc-viewer pre {
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/1.5 ui-sans-serif, -apple-system, sans-serif;
+  color: #d4d4d8;
+}

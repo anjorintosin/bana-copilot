@@ -277,6 +277,24 @@ export async function addModeDocument(
   return listModes(userId);
 }
 
+/** One saved file's full text, only from a mode this user owns. */
+export async function getModeDocument(userId: string, modeId: string, docId: string) {
+  const mode = await ownedMode(userId, modeId);
+  const id = sanitizeUuid(docId, "document");
+  const result = await pool.query(
+    `SELECT id, title, raw_text, created_at FROM mode_documents WHERE mode_id = $1 AND id = $2`,
+    [mode.id, id],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id as string,
+    title: row.title as string,
+    text: String(row.raw_text ?? ""),
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
 export async function deleteModeDocument(userId: string, modeId: string, docId: string) {
   const mode = await ownedMode(userId, modeId);
   const id = sanitizeUuid(docId, "document");

@@ -111,6 +111,15 @@ export type CopilotBridge = {
     id: string,
     docId: string,
   ) => Promise<AnswerModeList & { error?: string }>;
+  getModeDocument: (
+    token: string,
+    id: string,
+    docId: string,
+  ) => Promise<{ id?: string; title?: string; text?: string; createdAt?: string; error?: string }>;
+  getResume: (token: string) => Promise<{
+    resume?: { title: string; text: string; createdAt: string } | null;
+    error?: string;
+  }>;
   getAccount: (token: string) => Promise<BillingAccount & { error?: string }>;
   billingCheckout: (token: string, planId: string) => Promise<{ url?: string; error?: string }>;
   billingActivate: (token: string, planId: string) => Promise<BillingAccount & { error?: string }>;
@@ -127,6 +136,7 @@ export type CopilotBridge = {
     defaultTrack?: string;
     plan?: string;
     resume?: { id: string; title: string; excerpt: string; chunkCount: number } | null;
+    storyCount?: number;
     error?: string;
   }>;
   saveProfile: (

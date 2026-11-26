@@ -1,7 +1,7 @@
 {
   "name": "meeting-copilot",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Bana Copilot — Electron interview overlay with a Node realtime backend",
   "workspaces": [
     "apps/*",

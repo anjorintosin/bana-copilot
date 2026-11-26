@@ -27,6 +27,7 @@ import {
   saveTranscript,
 } from "./sessions.js";
 import {
+  getActiveResume,
   getCandidateBrief,
   getProfile,
   retrieveResumeContext,
@@ -40,6 +41,7 @@ import {
   createMode,
   deleteMode,
   deleteModeDocument,
+  getModeDocument,
   listModes,
   selectMode,
   updateMode,
@@ -274,6 +276,27 @@ app.post("/modes/:id/documents", async (req, reply) => {
       error: err instanceof Error ? err.message : "Could not add knowledge",
     });
   }
+});
+
+app.get("/modes/:id/documents/:docId", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  const { id, docId } = req.params as { id: string; docId: string };
+  try {
+    const doc = await getModeDocument(user.userId, id, docId);
+    if (!doc) return reply.code(404).send({ error: "File not found." });
+    return doc;
+  } catch (err) {
+    return reply.code(404).send({
+      error: err instanceof Error ? err.message : "File not found.",
+    });
+  }
+});
+
+app.get("/resume", async (req, reply) => {
+  const user = bearer(req.headers.authorization);
+  if (!user) return reply.code(401).send({ error: "unauthorized" });
+  return getActiveResume(user.userId);
 });
 
 app.delete("/modes/:id/documents/:docId", async (req, reply) => {

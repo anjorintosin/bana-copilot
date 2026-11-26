@@ -246,6 +246,12 @@ export function paintThread() {
       } else {
         art.append(a);
       }
+      if (turn.stopped && !empty) {
+        const note = document.createElement("p");
+        note.className = "msg-stopped";
+        note.textContent = "Stopped: you asked something new.";
+        art.append(note);
+      }
       if (!empty) art.append(makeCopyBtn());
       if (turn.flag) showFlag(art, turn.flag);
       return art;

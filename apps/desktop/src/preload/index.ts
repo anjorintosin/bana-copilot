@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld("copilot", {
     ipcRenderer.invoke("modes:select", token, id),
   addModeDocument: (token: string, id: string, body: unknown) =>
     ipcRenderer.invoke("modes:add-doc", token, id, body),
+  getModeDocument: (token: string, id: string, docId: string) =>
+    ipcRenderer.invoke("modes:get-doc", token, id, docId),
+  getResume: (token: string) => ipcRenderer.invoke("resume:get", token),
   deleteModeDocument: (token: string, id: string, docId: string) =>
     ipcRenderer.invoke("modes:delete-doc", token, id, docId),
   getAccount: (token: string) => ipcRenderer.invoke("account:get", token),

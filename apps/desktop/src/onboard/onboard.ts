@@ -51,8 +51,8 @@ function show(step: Step) {
   }
   if (step === "perms") {
     if (!assistOk) {
-      setBadge($.assistBadge, "wait", "Waiting");
-      $.assistHint.innerHTML = `Press <kbd id="assist-chord">${assistChordLabel()}</kbd> now to confirm.`;
+      setBadge($.assistBadge, "", "Optional");
+      $.assistHint.innerHTML = `Press <kbd id="assist-chord">${assistChordLabel()}</kbd> to try it. Optional.`;
       $.assistChord = document.getElementById("assist-chord") as HTMLElement;
     }
     startAssistCheck();

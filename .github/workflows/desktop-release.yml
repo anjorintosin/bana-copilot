@@ -7,7 +7,7 @@ on:
     inputs:
       tag:
         description: Public release tag to attach installers to
-        default: v0.1.5
+        default: v0.1.6
 jobs:
   pack:
     strategy:
@@ -149,7 +149,8 @@ jobs:
         with:
           name: desktop-${{ matrix.name }}
           if-no-files-found: error
-          retention-days: 7
+          # Only needed until the publish job below copies them to the releases repo.
+          retention-days: 1
           path: |
             apps/desktop/release/Bana.Copilot*.dmg
             apps/desktop/release/Bana.Copilot*.zip

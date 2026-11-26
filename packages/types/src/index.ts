@@ -337,6 +337,8 @@ export type ServerEvent =
       agent: string;
       text: string;
       source: "audio" | "screen" | "assist";
+      /** True when the answer solves what is on screen; false when a screenshot was only background. */
+      screen?: boolean;
     }
   | { type: "question.updated"; questionId: string; text: string }
   | { type: "answer.started"; questionId: string }

@@ -427,6 +427,7 @@ async function streamCueCardInner(
     agent: specialist.label,
     text: turnRecord.question,
     source,
+    screen: Boolean(opts?.groundToScreen),
   });
   void opts?.questionTitle?.then(async (title) => {
     if (!title || generation !== state.generation) return;

@@ -796,6 +796,10 @@ ipcMain.handle("modes:add-doc", async (_e, token: string, id: string, body: unkn
 ipcMain.handle("modes:delete-doc", async (_e, token: string, id: string, docId: string) =>
   modesRequest(token, `/modes/${id}/documents/${docId}`, "DELETE"),
 );
+ipcMain.handle("modes:get-doc", async (_e, token: string, id: string, docId: string) =>
+  modesRequest(token, `/modes/${encodeURIComponent(id)}/documents/${encodeURIComponent(docId)}`),
+);
+ipcMain.handle("resume:get", async (_e, token: string) => modesRequest(token, "/resume"));
 
 ipcMain.handle("account:get", async (_e, token: string) => {
   const res = await fetch(`${HTTP}/account`, {
