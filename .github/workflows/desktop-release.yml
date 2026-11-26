@@ -20,7 +20,9 @@ jobs:
           - os: windows-latest
             name: win
             builder: --win
-          - os: ubuntu-latest
+          # Pinned: on newer runner images the AppImage tool's bundled libm breaks mksquashfs
+          # ("GLIBC_2.43 not found"). 24.04 is what built 0.1.3 through 0.1.5.
+          - os: ubuntu-24.04
             name: linux
             builder: --linux
     runs-on: ${{ matrix.os }}
