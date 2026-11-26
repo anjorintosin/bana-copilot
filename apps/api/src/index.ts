@@ -11,6 +11,7 @@ import {
   type ServerEvent,
 } from "@meeting-copilot/types";
 import { sanitizeClientEvent, sanitizeTrack, takeWriteToken } from "./guard.js";
+import { bumpProfileVersion, changesProfile, profileVersion } from "./profileVersion.js";
 import { migrate } from "./db.js";
 import { connectRedis } from "./redis.js";
 import { bearer, signUser, upsertDevice, verifyToken, type AuthUser } from "./auth.js";
@@ -86,6 +87,16 @@ await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
 function send(socket: { send: (data: string) => void }, event: ServerEvent) {
   socket.send(JSON.stringify(event));
 }
+
+// onSend runs before the reply leaves, so by the time the desktop app hears that a mode or
+// document changed, live sessions already know to reload the candidate brief.
+app.addHook("onSend", async (req, reply, payload) => {
+  if (reply.statusCode < 400 && changesProfile(req.method, req.url)) {
+    const user = bearer(req.headers.authorization);
+    if (user) bumpProfileVersion(user.userId);
+  }
+  return payload;
+});
 
 app.get("/health", async () => ({
   ok: true,
@@ -491,8 +502,9 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
   let saveQueue: Promise<unknown> = Promise.resolve();
   if (user) {
     const userId = user.userId;
+    const connectedVersion = profileVersion(userId);
     void getCandidateBrief(userId)
-      .then((loaded) => hydrateSessionProfile(scratchId, loaded))
+      .then((loaded) => hydrateSessionProfile(scratchId, loaded, connectedVersion))
       .catch(() => undefined);
   }
 
@@ -554,7 +566,8 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           listenMode: event.listenMode,
         });
         try {
-          hydrateSessionProfile(sessionId, await getCandidateBrief(user.userId));
+          const version = profileVersion(user.userId);
+          hydrateSessionProfile(sessionId, await getCandidateBrief(user.userId), version);
         } catch {
           /* answers still load the brief on the first question */
         }
@@ -642,9 +655,10 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
           modeId: event.modeId,
         });
         if (event.modeId) {
+          const version = profileVersion(user.userId);
           const loaded = await getCandidateBrief(user.userId);
-          hydrateSessionProfile(sessionId, loaded);
-          if (sessionId !== scratchId) hydrateSessionProfile(scratchId, loaded);
+          hydrateSessionProfile(sessionId, loaded, version);
+          if (sessionId !== scratchId) hydrateSessionProfile(scratchId, loaded, version);
         }
         return;
       }
@@ -683,6 +697,7 @@ app.get(WS_PATH, { websocket: true }, (socket, req) => {
         resumeContext: (question: string, opts?: { k?: number }) =>
           retrieveResumeContext(user.userId, question, opts),
         candidateBrief: () => getCandidateBrief(user.userId),
+        profileVersion: () => profileVersion(user.userId),
       };
 
       const attachAi = async () => {

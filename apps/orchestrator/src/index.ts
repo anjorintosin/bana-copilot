@@ -79,6 +79,8 @@ type SessionMemory = {
   answeredAt: number;
   /** Bumped by every Assist request; an answer whose generation is stale stops streaming. */
   generation: number;
+  /** The API's profile version the brief was loaded at; a different one means reload it. */
+  profileVersion?: number;
   recent: string[];
   cleanRecent: string[];
   lastQuestion: string;
@@ -190,8 +192,10 @@ function applyProfile(state: SessionMemory, loaded: LoadedProfile) {
   state.knowledge = knowledge.length > KNOWLEDGE_IN_BRIEF ? chunkKnowledge(knowledge) : [];
 }
 
-export function hydrateSessionProfile(sessionId: string, loaded: LoadedProfile) {
-  applyProfile(mem(sessionId), loaded);
+export function hydrateSessionProfile(sessionId: string, loaded: LoadedProfile, version?: number) {
+  const state = mem(sessionId);
+  applyProfile(state, loaded);
+  state.profileVersion = version;
 }
 
 export function clearSessionMemory(sessionId: string) {
@@ -276,6 +280,8 @@ type AnswerExtras = {
     job: { title?: string | null; company?: string | null; requirements?: string | null };
   }>;
   candidateBrief?: () => Promise<LoadedProfile>;
+  /** Current profile version from the API; when it moves, the brief is reloaded. */
+  profileVersion?: () => number;
 };
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
@@ -287,15 +293,26 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   ]);
 }
 
+/**
+ * Loads the candidate brief (mode, its files, resume, stories), and reloads it whenever the API
+ * says the profile changed since it was loaded. The old brief stays in use until the new one
+ * is ready, so a slow reload never answers with no brief at all.
+ */
 async function ensureBrief(sessionId: string, extras?: AnswerExtras) {
   const state = mem(sessionId);
   if (!extras?.candidateBrief) return;
-  if (state.brief) return;
+  const version = extras.profileVersion?.();
+  if (state.brief && (version === undefined || state.profileVersion === version)) return;
   if (!state.briefPromise) {
-    state.briefPromise = extras
-      .candidateBrief()
-      .then((loaded) => applyProfile(state, loaded))
-      .catch(() => {
+    const loadFor = extras.candidateBrief;
+    state.briefPromise = loadFor()
+      .then((loaded) => {
+        applyProfile(state, loaded);
+        // The version read before loading: a change made during the load triggers another.
+        state.profileVersion = version;
+      })
+      .catch(() => undefined)
+      .finally(() => {
         state.briefPromise = undefined;
       });
   }
@@ -308,6 +325,8 @@ function withSessionAi<T>(sessionId: string, fn: () => T): T {
 
 /** Most segments one session keeps. A long interview is a few hundred. */
 const TRANSCRIPT_MAX = 6_000;
+/** Longest wait for a changed mode or file to load before answering with the previous one. */
+const BRIEF_WAIT_MS = 4_000;
 /** Longest wait for the transcriber to finish the words said just before Assist. */
 const SETTLE_MS = 1_600;
 
@@ -418,7 +437,8 @@ async function streamCueCardInner(
   try {
     let full = "";
     const groundToScreen = Boolean(opts?.groundToScreen);
-    if (!state.brief) await withTimeout(ensureBrief(sessionId, extras), 1500);
+    // Every answer checks for a newer mode or file; when nothing changed this returns at once.
+    await withTimeout(ensureBrief(sessionId, extras), BRIEF_WAIT_MS);
 
     let ragContext = "";
     let picked: Story | null = null;

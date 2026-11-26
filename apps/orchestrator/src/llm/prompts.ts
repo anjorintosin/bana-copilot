@@ -48,9 +48,12 @@ const HOUSE_RULES = `Interview rules:
 - If a claims ledger is present, reuse its employers, numbers, people, and systems.
 - Concrete over generic: name the key, TTL in seconds, partition, columns, metric, or dashboard instead of "add a cache" or "check the logs".`;
 
-/** Knowledge up to this size goes whole into the cached brief; larger sets are retrieved per question. */
-export const KNOWLEDGE_IN_BRIEF = 6000;
-const KNOWLEDGE_OVERVIEW = 1500;
+/**
+ * Knowledge up to this size goes whole into the cached brief (about 15k tokens), so the model
+ * reads every file in full. Larger sets keep an overview here and are retrieved per question.
+ */
+export const KNOWLEDGE_IN_BRIEF = 60_000;
+const KNOWLEDGE_OVERVIEW = 8_000;
 
 export function formatCandidateBrief(input: {
   title?: string | null;

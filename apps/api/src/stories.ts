@@ -8,6 +8,7 @@ import {
 } from "@meeting-copilot/orchestrator";
 import { resolveAi } from "./billing.js";
 import { pool } from "./db.js";
+import { bumpProfileVersion } from "./profileVersion.js";
 
 const extracting = new Set<string>();
 
@@ -64,6 +65,8 @@ export async function storiesStatus(userId: string): Promise<StoriesStatus> {
 }
 
 async function setStatus(userId: string, status: StoriesStatus) {
+  // Extraction finishes in the background, after the request that started it returned.
+  if (status === "ready") bumpProfileVersion(userId);
   await pool.query(
     `INSERT INTO user_profiles (user_id, stories_status, updated_at)
      VALUES ($1, $2, now())

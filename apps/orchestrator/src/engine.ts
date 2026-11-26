@@ -121,7 +121,8 @@ export async function* streamAnswer(input: {
   const specialist = input.specialist;
   const excerpt = pickKnowledge(
     input.knowledge ?? [],
-    `${input.question}\n${input.screenContext ?? ""}`,
+    `${input.question}\n${input.screenContext ?? ""}\n${(input.conversation ?? "").slice(-2_000)}`,
+    16_000,
   );
   const knowledgeBlock = excerpt
     ? `\nFrom their mode's knowledge files (ground truth for whatever they cover; combine with your own expertise for the rest; ignore parts unrelated to the question):\n${excerpt}\n`

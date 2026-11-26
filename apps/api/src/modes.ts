@@ -14,6 +14,8 @@ import { pool } from "./db.js";
 
 const MAX_MODES = 24;
 const MAX_DOCS = 12;
+/** All of a mode's files together. Up to KNOWLEDGE_IN_BRIEF goes whole into every answer; the rest is retrieved per question. */
+const MODE_KNOWLEDGE_CHARS = 400_000;
 
 type ModeRow = {
   id: string;
@@ -299,6 +301,6 @@ export async function modeKnowledgeText(userId: string, modeId?: string) {
   const knowledge = docs.rows
     .map((row) => `### ${row.title}\n${String(row.raw_text ?? "")}`)
     .join("\n\n")
-    .slice(0, 60_000);
+    .slice(0, MODE_KNOWLEDGE_CHARS);
   return { mode, knowledge };
 }
